@@ -6,6 +6,8 @@ on:
 
 env: 
   CARGO_TERM_COLOR: always
+  MOCK_NFTABLES: 1
+  LETMEIN_DISABLE_SECCOMP: 1
 
 jobs:
   server_and_client:
