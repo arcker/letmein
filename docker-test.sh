@@ -8,7 +8,7 @@ NC='\033[0m' # No Color
 
 # Options detection
 DEBUG_MODE=""
-REAL_NFTABLES=""
+MOCK_NFTABLES="0" # Par défaut, on utilise les vrais nftables
 WITH_GEN_KEY=""
 SPECIFIC_TESTS=""
 
@@ -17,7 +17,7 @@ usage() {
     echo -e "Usage: $0 [OPTIONS] [TESTS]"
     echo -e "Options:"
     echo -e "  --debug           Launch an interactive shell for debugging"
-    echo -e "  --real-nftables   Use real nftables instead of the stub"
+    echo -e "  --MOCK_NFTABLES    Use nftables stub instead of real nftables"
     echo -e "  --with-gen-key    Include the gen-key test (disabled by default)"
     echo -e "  --help            Display this help message"
     echo -e "Available tests:"
@@ -37,9 +37,9 @@ for arg in "$@"; do
             DEBUG_MODE="1"
             echo -e "${YELLOW}Debug mode enabled${NC}"
             ;;
-        --real-nftables)
-            REAL_NFTABLES="1"
-            echo -e "${YELLOW}Real nftables mode enabled${NC}"
+        --MOCK_NFTABLES)
+            MOCK_NFTABLES="1"
+            echo -e "${YELLOW}Mock nftables mode enabled${NC}"
             ;;
         --with-gen-key)
             WITH_GEN_KEY="1"
@@ -81,7 +81,7 @@ else
     if [ "$MOCK_NFTABLES" = "1" ]; then
         echo -e "${YELLOW}Running tests with nftables stub (MOCK_NFTABLES=1)...${NC}"
     else
-        echo -e "${YELLOW}Running tests with real nftables...${NC}"
+        echo -e "${YELLOW}Running tests with real nftables (MOCK_NFTABLES=0)...${NC}"
     fi
 
     # Determine which tests to run
@@ -150,8 +150,8 @@ else
         echo -e "${YELLOW}Tips:${NC}"
         echo -e "${YELLOW}1. Run './docker-test.sh --debug' to enter an interactive shell for debugging.${NC}"
         
-        if [ "$REAL_NFTABLES" = "1" ]; then
-            echo -e "${YELLOW}2. Try without the --real-nftables option to use the stub.${NC}"
+        if [ "$MOCK_NFTABLES" != "1" ]; then
+            echo -e "${YELLOW}2. Try with the --MOCK_NFTABLES option to use the stub.${NC}"
         else
             echo -e "${YELLOW}2. Make sure the MOCK_NFTABLES variable is properly defined in the tests.${NC}"
         fi

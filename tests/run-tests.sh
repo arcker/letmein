@@ -119,12 +119,28 @@ verify_nft_rule_exists()
     
     info "Checking for the presence of nftables rule for $addr port $port/$proto..."
 
-    # Use the letmeinfwd verify command that directly uses the nftables crate
-    if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist true; then
-        return 0
+    # Vérifier d'abord si l'option --should-exist est supportée
+    if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
+        # La nouvelle version avec --should-exist est supportée
+        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist true; then
+            return 0
+        else
+            die "ERROR: nftables rule not found for $addr port $port/$proto"
+            return 1
+        fi
     else
-        die "ERROR: nftables rule not found for $addr port $port/$proto"
-        return 1
+        # Ancienne version sans --should-exist, vérifions manuellement
+        # Exécuter la commande sans --should-exist et analyser le résultat
+        local output
+        output="$("$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" 2>&1)"
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && echo "$output" | grep -q "Rule found"; then
+            return 0
+        else
+            die "ERROR: nftables rule not found for $addr port $port/$proto"
+            return 1
+        fi
     fi
 }
 
@@ -137,12 +153,28 @@ verify_nft_rule_missing()
     
     info "Checking for the absence of nftables rule for $addr port $port/$proto..."
 
-    # Use the letmeinfwd verify command that directly uses the nftables crate
-    if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist false; then
-        return 0
+    # Vérifier d'abord si l'option --should-exist est supportée
+    if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
+        # La nouvelle version avec --should-exist est supportée
+        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist false; then
+            return 0
+        else
+            die "ERROR: nftables rule still present for $addr port $port/$proto"
+            return 1
+        fi
     else
-        die "ERROR: nftables rule still present for $addr port $port/$proto"
-        return 1
+        # Ancienne version sans --should-exist, vérifions manuellement
+        # Exécuter la commande sans --should-exist et analyser le résultat
+        local output
+        output="$("$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" 2>&1)"
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && echo "$output" | grep -q "Rule successfully removed" || echo "$output" | grep -q "Rule not found"; then
+            return 0
+        else
+            die "ERROR: nftables rule still present for $addr port $port/$proto"
+            return 1
+        fi
     fi
 }
 
