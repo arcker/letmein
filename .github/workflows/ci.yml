@@ -67,7 +67,7 @@ jobs:
             --cap-add=NET_ADMIN \
             --cap-add=SYS_ADMIN \
             --security-opt seccomp=unconfined \
-            -e MOCK_NFTABLES=0 \
+            -e MOCK_NFTABLES=1 \
             -e LETMEIN_DISABLE_SECCOMP=1 \
             -e RUST_BACKTRACE=0 \
             -v "$(pwd):/app" \
