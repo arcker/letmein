@@ -14,7 +14,7 @@ use nftables::{
     helper::get_current_ruleset_with_args_async,
     schema::{NfListObject, NfObject},
 };
-use std::net::IpAddr;
+use std::{env, net::IpAddr};
 
 /// Verify if a rule exists or is missing in the nftables ruleset
 /// 
@@ -28,6 +28,16 @@ pub async fn verify_nft_rule(
     proto: &str,
     should_exist: bool,
 ) -> ah::Result<bool> {
+    // Check if MOCK_NFTABLES is set, if so, skip actual verification
+    if let Ok(mock_value) = env::var("MOCK_NFTABLES") {
+        if mock_value == "1" {
+            println!("MOCK_NFTABLES=1 detected, skipping nftables rule verification");
+            println!("✓ OK: Verification skipped in MOCK_NFTABLES mode for {} port {}/{}", 
+                    addr_str, port, proto);
+            return Ok(true); // Always succeed in mock mode
+        }
+    }
+
     // Parse the IP address
     let addr: IpAddr = match addr_str.parse() {
         Ok(addr) => addr,

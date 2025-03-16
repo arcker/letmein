@@ -124,8 +124,8 @@ else
             -e RUST_BACKTRACE=0 \
             -e LD_PRELOAD="" \
             -v "$(pwd):/app" \
-            --entrypoint ./tests/run-tests.sh \
-            letmein-test $TEST_ARGS
+            --entrypoint /bin/bash \
+            letmein-test -c "cd /app && ./debug-test.sh --test \"$TEST_ARGS\" && echo -e '${GREEN}Debug logs have been written to the nft-logs directory${NC}'"
     else
         # Real mode: do not pass the MOCK_NFTABLES variable
         docker run --rm \
@@ -138,8 +138,8 @@ else
             -e RUST_BACKTRACE=0 \
             -e LD_PRELOAD="" \
             -v "$(pwd):/app" \
-            --entrypoint ./tests/run-tests.sh \
-            letmein-test $TEST_ARGS
+            --entrypoint /bin/bash \
+            letmein-test -c "cd /app && ./debug-test.sh --test \"$TEST_ARGS\" && echo -e '${GREEN}Debug logs have been written to the nft-logs directory${NC}'"
     fi
     
     # Check exit code
