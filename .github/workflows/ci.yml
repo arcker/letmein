@@ -93,13 +93,6 @@ jobs:
           
           echo "\n==== LISTING ALL GENERATED LOG FILES ===="
           ls -la nft-logs/ 2>/dev/null || echo "No log files found"
-      
-      - name: Archive nftables logs (always)
-        if: always()  # Run even if the previous step failed
-        uses: actions/upload-artifact@v3
-        with:
-          name: nftables-logs
-          path: nft-logs/
-          retention-days: 1
+
 
 # vim: ts=2 sw=2 expandtab
