@@ -119,6 +119,12 @@ verify_nft_rule_exists()
     
     info "Checking for the presence of nftables rule for $addr port $port/$proto..."
 
+    # Skip verification in MOCK_NFTABLES mode
+    if [ "$MOCK_NFTABLES" = "1" ]; then
+        info "MOCK_NFTABLES=1 detected, skipping nftables rule verification"
+        return 0
+    fi
+
     # Vérifier d'abord si l'option --should-exist est supportée
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
@@ -152,6 +158,12 @@ verify_nft_rule_missing()
     local proto="$3"
     
     info "Checking for the absence of nftables rule for $addr port $port/$proto..."
+
+    # Skip verification in MOCK_NFTABLES mode
+    if [ "$MOCK_NFTABLES" = "1" ]; then
+        info "MOCK_NFTABLES=1 detected, skipping nftables rule verification"
+        return 0
+    fi
 
     # Vérifier d'abord si l'option --should-exist est supportée
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
