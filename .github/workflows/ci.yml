@@ -51,93 +51,52 @@ jobs:
   tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    container:
-      image: rust:alpine
-      options: --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
       
-      - name: Debug checkout
+      - name: Add execute permissions to scripts
+        run: chmod +x ./debug-test.sh ./tests/run-tests.sh ./build.sh
+
+      - name: Build and run tests in Docker
         run: |
-          pwd
-          ls -la
-          echo "Checking for debug-test.sh:"
-          find . -name "debug-test.sh"
-      
-      - name: Install dependencies
-        run: |
-          apk add --no-cache \
-            build-base \
-            curl \
-            git \
-            nftables \
-            iptables \
-            sudo \
-            libcap \
-            strace \
-            procps \
-            shadow
-      
-      - name: Configure environment
-        run: |
-          # Installer Clippy
-          rustup component add clippy
+          # Construire l'image Docker
+          docker build -t letmein-test -f Dockerfile.test .
           
-          # Configurer sudoers
-          echo "ALL ALL=(ALL) NOPASSWD: /sbin/nft, /usr/bin/strace" >> /etc/sudoers
-          
-          # Préparation des répertoires
-          mkdir -p /etc/nftables /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
-          chmod 777 /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
-          
-          # Configuration de nftables de base
-          echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf
-          echo 'flush ruleset' >> /etc/nftables/basic.conf
-          echo 'table inet filter {' >> /etc/nftables/basic.conf
-          echo '  chain input {' >> /etc/nftables/basic.conf
-          echo '    type filter hook input priority 0; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain forward {' >> /etc/nftables/basic.conf
-          echo '    type filter hook forward priority 0; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain output {' >> /etc/nftables/basic.conf
-          echo '    type filter hook output priority 0; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain LETMEIN-INPUT {' >> /etc/nftables/basic.conf
-          echo '    type filter hook input priority 100; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain LETMEIN-OUTPUT {' >> /etc/nftables/basic.conf
-          echo '    type filter hook output priority 100; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '}' >> /etc/nftables/basic.conf
-          chmod +x /etc/nftables/basic.conf
-          
-          # Initialisation de nftables
-          nft -f /etc/nftables/basic.conf
-      
-      - name: Run tests with debugging
-        run: |
-          # Créer le répertoire pour les logs
+          # Créer un répertoire pour les logs
           mkdir -p nft-logs
           
-          # Ajouter les permissions d'exécution au script
-          if [ -f "./debug-test.sh" ]; then
-            chmod +x ./debug-test.sh
-            # Exécuter les tests avec le script de débogage
-            export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
-            ./debug-test.sh --real --test "knock close"
-          elif [ -f "$GITHUB_WORKSPACE/debug-test.sh" ]; then
-            chmod +x "$GITHUB_WORKSPACE/debug-test.sh"
-            # Exécuter les tests avec le chemin complet
-            export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
-            "$GITHUB_WORKSPACE/debug-test.sh" --real --test "knock close"
-          else
-            echo "ERROR: debug-test.sh not found! Searched in:" 
-            echo "- $(pwd)/debug-test.sh"
-            echo "- $GITHUB_WORKSPACE/debug-test.sh"
-            find / -name "debug-test.sh" 2>/dev/null || echo "No debug-test.sh found on system!"
-            exit 1
-          fi
+          # Exécuter les tests en affichant les règles nftables avant et après
+          docker run --rm \
+            --privileged \
+            --cap-add=NET_ADMIN \
+            --cap-add=SYS_ADMIN \
+            --security-opt seccomp=unconfined \
+            -e LETMEIN_DISABLE_SECCOMP=1 \
+            -e RUST_BACKTRACE=0 \
+            -v "$(pwd):/app" \
+            --workdir /app \
+            letmein-test /bin/sh -c '
+              # Capture des règles nftables initiales
+              mkdir -p nft-logs
+              nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
+              
+              # Capture avant les tests
+              nft list ruleset > nft-logs/nft-state-before-tests-$(date +%Y%m%d-%H%M%S).log
+              
+              # Lancer les tests
+              echo "Lancement des tests..."
+              ./tests/run-tests.sh knock close
+              TEST_RESULT=$?
+              
+              # Capture après les tests
+              nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
+              
+              # Afficher un résumé
+              echo "===== LOGS NFTABLES GÉNÉRÉS =====" 
+              ls -la nft-logs/
+              
+              exit $TEST_RESULT
+            '
       
       - name: Display nftables logs on failure
         if: failure()  # Only run when tests fail
