@@ -85,7 +85,7 @@ jobs:
               
               # Lancer les tests
               echo "Lancement des tests..."
-              ./tests/run-tests.sh knock close
+              sh -c "./tests/run-tests.sh knock close"
               TEST_RESULT=$?
               
               # Capture après les tests
@@ -172,8 +172,8 @@ jobs:
           # Initialiser nftables
           nft -f /etc/nftables/basic.conf
           
-          # Installer Clippy
-          rustup component add clippy
+          # Note: Rustup component installation (Clippy) souvent problématique dans ce contexte
+          # Nous l'ignorons car déjà vérifié dans les autres jobs
 
           # Donner les permissions d'exécution aux scripts
           chmod +x ./debug-test.sh ./tests/run-tests.sh ./build.sh
@@ -192,7 +192,7 @@ jobs:
           
           # Lancer les tests directement
           echo "Lancement des tests..."
-          ./tests/run-tests.sh knock close
+          sh -c "./tests/run-tests.sh knock close"
           TEST_RESULT=$?
           
           # Capture après les tests
