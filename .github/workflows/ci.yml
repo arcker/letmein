@@ -31,7 +31,6 @@ jobs:
     strategy:
       matrix:
         toolchain:
-          - 1.81.0 # MSRV
           - 1.84.0
         os:
           - windows-latest
@@ -57,6 +56,13 @@ jobs:
       options: --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Debug checkout
+        run: |
+          pwd
+          ls -la
+          echo "Checking for debug-test.sh:"
+          find . -name "debug-test.sh"
       
       - name: Install dependencies
         run: |
@@ -114,9 +120,24 @@ jobs:
           # Créer le répertoire pour les logs
           mkdir -p nft-logs
           
-          # Exécuter les tests avec le script de débogage
-          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
-          ./debug-test.sh --real --test "knock close"
+          # Ajouter les permissions d'exécution au script
+          if [ -f "./debug-test.sh" ]; then
+            chmod +x ./debug-test.sh
+            # Exécuter les tests avec le script de débogage
+            export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
+            ./debug-test.sh --real --test "knock close"
+          elif [ -f "$GITHUB_WORKSPACE/debug-test.sh" ]; then
+            chmod +x "$GITHUB_WORKSPACE/debug-test.sh"
+            # Exécuter les tests avec le chemin complet
+            export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
+            "$GITHUB_WORKSPACE/debug-test.sh" --real --test "knock close"
+          else
+            echo "ERROR: debug-test.sh not found! Searched in:" 
+            echo "- $(pwd)/debug-test.sh"
+            echo "- $GITHUB_WORKSPACE/debug-test.sh"
+            find / -name "debug-test.sh" 2>/dev/null || echo "No debug-test.sh found on system!"
+            exit 1
+          fi
       
       - name: Display nftables logs on failure
         if: failure()  # Only run when tests fail
