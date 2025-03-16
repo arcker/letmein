@@ -48,8 +48,8 @@ jobs:
       - run: cargo test --package letmein-conf
       - run: cargo test --package letmein-proto
 
-  tests:
-    name: Integration Tests
+  docker-tests:
+    name: Docker Integration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,6 +97,112 @@ jobs:
               
               exit $TEST_RESULT
             '
+
+      - name: Display nftables logs on failure
+        if: failure()  # Only run when tests fail
+        run: |
+          echo "==== NFTABLES DEBUG LOGS ===="
+          echo "Displaying the initial, before-tests, and after-tests state logs:"
+          
+          echo "\n==== INITIAL STATE ===="
+          cat nft-logs/nft-state-initial-*.log 2>/dev/null || echo "Initial state log not found"
+          
+          echo "\n==== STATE BEFORE TESTS ===="
+          cat nft-logs/nft-state-before-tests-*.log 2>/dev/null || echo "Before-tests state log not found"
+          
+          echo "\n==== STATE AFTER TESTS ===="
+          cat nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "After-tests state log not found"
+          
+          echo "\n==== COMPARING BEFORE/AFTER TESTS (diff) ===="
+          diff nft-logs/nft-state-before-tests-*.log nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "Could not generate diff"
+          
+          echo "\n==== LISTING ALL GENERATED LOG FILES ===="
+          ls -la nft-logs/ 2>/dev/null || echo "No log files found"
+          
+  simple-tests:
+    name: Simple Integration Tests
+    runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+      options: --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies and run tests
+        run: |
+          # Installer les dépendances nécessaires
+          apk add --no-cache \
+            build-base \
+            curl \
+            git \
+            nftables \
+            iptables \
+            sudo \
+            libcap \
+            strace \
+            procps \
+            shadow
+          
+          # Préparer l'environnement
+          mkdir -p /etc/nftables /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
+          chmod 777 /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
+          
+          # Configurer nftables de base
+          echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf
+          echo 'flush ruleset' >> /etc/nftables/basic.conf
+          echo 'table inet filter {' >> /etc/nftables/basic.conf
+          echo '  chain input {' >> /etc/nftables/basic.conf
+          echo '    type filter hook input priority 0; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain forward {' >> /etc/nftables/basic.conf
+          echo '    type filter hook forward priority 0; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain output {' >> /etc/nftables/basic.conf
+          echo '    type filter hook output priority 0; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain LETMEIN-INPUT {' >> /etc/nftables/basic.conf
+          echo '    type filter hook input priority 100; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain LETMEIN-OUTPUT {' >> /etc/nftables/basic.conf
+          echo '    type filter hook output priority 100; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '}' >> /etc/nftables/basic.conf
+          chmod +x /etc/nftables/basic.conf
+          
+          # Initialiser nftables
+          nft -f /etc/nftables/basic.conf
+          
+          # Installer Clippy
+          rustup component add clippy
+
+          # Donner les permissions d'exécution aux scripts
+          chmod +x ./debug-test.sh ./tests/run-tests.sh ./build.sh
+          
+          # Créer le répertoire pour les logs
+          mkdir -p nft-logs
+          
+          # Configuration des flags pour les tests
+          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
+          
+          # Capture des règles nftables initiales
+          nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
+          
+          # Capture avant les tests
+          nft list ruleset > nft-logs/nft-state-before-tests-$(date +%Y%m%d-%H%M%S).log
+          
+          # Lancer les tests directement
+          echo "Lancement des tests..."
+          ./tests/run-tests.sh knock close
+          TEST_RESULT=$?
+          
+          # Capture après les tests
+          nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
+          
+          # Afficher un résumé
+          echo "===== LOGS NFTABLES GÉNÉRÉS ====="
+          ls -la nft-logs/
+          
+          exit $TEST_RESULT
       
       - name: Display nftables logs on failure
         if: failure()  # Only run when tests fail
