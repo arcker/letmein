@@ -61,17 +61,45 @@ jobs:
           # Construire l'image Docker
           docker build -t letmein-test -f Dockerfile.test .
           
-          # Exécuter les tests avec MOCK_NFTABLES=1 et LETMEIN_DISABLE_SECCOMP=1
+          # Exécuter les tests avec debug-test.sh et vrais nftables
           docker run --rm \
             --privileged \
             --cap-add=NET_ADMIN \
             --cap-add=SYS_ADMIN \
             --security-opt seccomp=unconfined \
-            -e MOCK_NFTABLES=1 \
             -e LETMEIN_DISABLE_SECCOMP=1 \
             -e RUST_BACKTRACE=0 \
             -v "$(pwd):/app" \
-            --entrypoint ./tests/run-tests.sh \
-            letmein-test knock close
+            --entrypoint ./debug-test.sh \
+            letmein-test --real --test "knock close"
+      
+      - name: Display nftables logs on failure
+        if: failure()  # Only run when tests fail
+        run: |
+          echo "==== NFTABLES DEBUG LOGS ===="
+          echo "Displaying the initial, before-tests, and after-tests state logs:"
+          
+          echo "\n==== INITIAL STATE ===="
+          cat nft-logs/nft-state-initial-*.log 2>/dev/null || echo "Initial state log not found"
+          
+          echo "\n==== STATE BEFORE TESTS ===="
+          cat nft-logs/nft-state-before-tests-*.log 2>/dev/null || echo "Before-tests state log not found"
+          
+          echo "\n==== STATE AFTER TESTS ===="
+          cat nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "After-tests state log not found"
+          
+          echo "\n==== COMPARING BEFORE/AFTER TESTS (diff) ===="
+          diff nft-logs/nft-state-before-tests-*.log nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "Could not generate diff"
+          
+          echo "\n==== LISTING ALL GENERATED LOG FILES ===="
+          ls -la nft-logs/ 2>/dev/null || echo "No log files found"
+      
+      - name: Archive nftables logs (always)
+        if: always()  # Run even if the previous step failed
+        uses: actions/upload-artifact@v3
+        with:
+          name: nftables-logs
+          path: nft-logs/
+          retention-days: 1
 
 # vim: ts=2 sw=2 expandtab
