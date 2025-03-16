@@ -49,29 +49,74 @@ jobs:
       - run: cargo test --package letmein-conf
       - run: cargo test --package letmein-proto
 
-  docker_tests:
-    name: Docker Tests
+  tests:
+    name: Integration Tests
     runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+      options: --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Build and run Docker tests
+      
+      - name: Install dependencies
         run: |
-          # Construire l'image Docker
-          docker build -t letmein-test -f Dockerfile.test .
+          apk add --no-cache \
+            build-base \
+            curl \
+            git \
+            nftables \
+            iptables \
+            sudo \
+            libcap \
+            strace \
+            procps \
+            shadow
+      
+      - name: Configure environment
+        run: |
+          # Installer Clippy
+          rustup component add clippy
           
-          # Exécuter les tests avec debug-test.sh et vrais nftables
-          docker run --rm \
-            --privileged \
-            --cap-add=NET_ADMIN \
-            --cap-add=SYS_ADMIN \
-            --security-opt seccomp=unconfined \
-            -e LETMEIN_DISABLE_SECCOMP=1 \
-            -e RUST_BACKTRACE=0 \
-            -v "$(pwd):/app" \
-            --entrypoint ./debug-test.sh \
-            letmein-test --real --test "knock close"
+          # Configurer sudoers
+          echo "ALL ALL=(ALL) NOPASSWD: /sbin/nft, /usr/bin/strace" >> /etc/sudoers
+          
+          # Préparation des répertoires
+          mkdir -p /etc/nftables /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
+          chmod 777 /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
+          
+          # Configuration de nftables de base
+          echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf
+          echo 'flush ruleset' >> /etc/nftables/basic.conf
+          echo 'table inet filter {' >> /etc/nftables/basic.conf
+          echo '  chain input {' >> /etc/nftables/basic.conf
+          echo '    type filter hook input priority 0; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain forward {' >> /etc/nftables/basic.conf
+          echo '    type filter hook forward priority 0; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain output {' >> /etc/nftables/basic.conf
+          echo '    type filter hook output priority 0; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain LETMEIN-INPUT {' >> /etc/nftables/basic.conf
+          echo '    type filter hook input priority 100; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '  chain LETMEIN-OUTPUT {' >> /etc/nftables/basic.conf
+          echo '    type filter hook output priority 100; policy accept;' >> /etc/nftables/basic.conf
+          echo '  }' >> /etc/nftables/basic.conf
+          echo '}' >> /etc/nftables/basic.conf
+          chmod +x /etc/nftables/basic.conf
+          
+          # Initialisation de nftables
+          nft -f /etc/nftables/basic.conf
+      
+      - name: Run tests with debugging
+        run: |
+          # Créer le répertoire pour les logs
+          mkdir -p nft-logs
+          
+          # Exécuter les tests avec le script de débogage
+          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
+          ./debug-test.sh --real --test "knock close"
       
       - name: Display nftables logs on failure
         if: failure()  # Only run when tests fail
@@ -93,6 +138,13 @@ jobs:
           
           echo "\n==== LISTING ALL GENERATED LOG FILES ===="
           ls -la nft-logs/ 2>/dev/null || echo "No log files found"
-
+      
+      # - name: Archive nftables logs (always)
+      #   if: always()  # Run even if the previous step failed
+      #   uses: actions/upload-artifact@v3
+      #   with:
+      #     name: nftables-logs
+      #     path: nft-logs/
+      #     retention-days: 1
 
 # vim: ts=2 sw=2 expandtab
