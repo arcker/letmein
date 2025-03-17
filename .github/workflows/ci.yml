@@ -226,9 +226,13 @@ jobs:
           
           # Lancer les tests directement
           echo "Lancement des tests..."
-          # Mettre à jour l'environnement pour l'exécution des tests
+          # Mettre à jour l'environnement pour l'exécution des tests avec logs détaillés
           export PATH="$(pwd)/target/debug:$PATH"
-          export RUST_LOG=letmeinfwd=debug,letmeind=debug
+          export RUST_LOG=letmeinfwd=trace,letmeind=trace,nftables=debug
+          
+          # Inspecter le chemin de l'exécutable letmeinfwd
+          echo "=== letmeinfwd path ==="
+          which letmeinfwd || echo "letmeinfwd not found in PATH"
           
           # Exécuter directement les fonctions de test pour éviter les problèmes d'arguments
           cd ./tests
@@ -236,8 +240,32 @@ jobs:
           nft list ruleset
           
           echo "Lancement du test knock..."
-          ./run-tests.sh knock
+          
+          # Exécuter explicitement letmeinfwd verify juste avant le test
+          if [ -x "$(pwd)/../target/debug/letmeinfwd" ]; then
+            echo "=== Executing letmeinfwd verify manually before test ==="
+            "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist false
+            echo "Code de retour de letmeinfwd verify avant test: $?"
+          fi
+          
+          # Lancement du test knock avec mode verbeux
+          echo "=== Running knock test with MOCK_NFTABLES=$MOCK_NFTABLES ==="
+          ./run-tests.sh knock -v
           KNOCK_RESULT=$?
+          
+          # Inspecter manuellement les règles nftables après le test knock
+          echo "=== Inspecting nftables rules manually after knock ==="
+          echo "Toutes les règles nftables:"
+          nft list ruleset
+          echo "Filtrage pour letmein:"
+          nft list ruleset | grep -i letmein || echo "Aucune règle avec 'letmein' trouvée"
+          
+          # Exécuter explicitement letmeinfwd verify après le test knock
+          if [ -x "$(pwd)/../target/debug/letmeinfwd" ]; then
+            echo "=== Executing letmeinfwd verify manually after test ==="
+            "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist true
+            echo "Code de retour de letmeinfwd verify après test: $?"
+          fi
           
           echo "=== État nftables après test knock ==="
           nft list ruleset
