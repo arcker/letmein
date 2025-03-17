@@ -256,9 +256,9 @@ jobs:
               echo "Version sans --should-exist détectée"
             fi
             
-            # Exécuter avec le même fichier de configuration que les tests
-            # Les tests utilisent $testdir/conf/knock.conf
-            CONF_PATH="$(pwd)/conf/knock.conf"
+            # Exécuter avec un fichier de configuration disponible
+            # Utiliser tcp.conf puisque c'est disponible et qu'on teste une règle TCP
+            CONF_PATH="$(pwd)/conf/tcp.conf"
             echo "Utilisation du fichier de configuration: $CONF_PATH"
             ls -la "$CONF_PATH" || echo "Fichier non trouvé"
             
@@ -300,8 +300,9 @@ jobs:
               echo "Version sans --should-exist détectée"
             fi
             
-            # Utiliser le même fichier de configuration que les tests
-            CONF_PATH="$(pwd)/conf/knock.conf"
+            # Utiliser un fichier de configuration disponible
+            # Utiliser tcp.conf puisque c'est disponible et qu'on teste une règle TCP
+            CONF_PATH="$(pwd)/conf/tcp.conf"
             echo "Utilisation du fichier de configuration: $CONF_PATH"
             
             # Exécuter avec ou sans --should-exist selon la version
