@@ -179,7 +179,7 @@ jobs:
           echo '    type filter hook output priority 0; policy accept;' >> /etc/nftables/basic.conf
           echo '  }' >> /etc/nftables/basic.conf
           echo '  chain LETMEIN-INPUT {' >> /etc/nftables/basic.conf
-          echo '    type filter hook input priority 100; policy accept;' >> /etc/nftables/basic.conf
+          echo '    type filter hook input priority srcnat; policy accept;' >> /etc/nftables/basic.conf
           echo '  }' >> /etc/nftables/basic.conf
           echo '  chain LETMEIN-OUTPUT {' >> /etc/nftables/basic.conf
           echo '    type filter hook output priority 100; policy accept;' >> /etc/nftables/basic.conf
@@ -230,6 +230,8 @@ jobs:
           export PATH="$(pwd)/target/debug:$PATH"
           export RUST_LOG=letmeinfwd=trace,letmeind=trace,nftables=debug
           
+          # Ne pas créer de fichier de configuration global car les tests utilisent leur propre configuration
+          
           # Inspecter le chemin de l'exécutable letmeinfwd
           echo "=== letmeinfwd path ==="
           which letmeinfwd || echo "letmeinfwd not found in PATH"
@@ -254,18 +256,23 @@ jobs:
               echo "Version sans --should-exist détectée"
             fi
             
-            # Exécuter avec ou sans --should-exist selon la version
+            # Exécuter avec le même fichier de configuration que les tests
+            # Les tests utilisent $testdir/conf/knock.conf
+            CONF_PATH="$(pwd)/conf/knock.conf"
+            echo "Utilisation du fichier de configuration: $CONF_PATH"
+            ls -la "$CONF_PATH" || echo "Fichier non trouvé"
+            
             if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
-              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist false
+              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist false
             else
-              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp"
+              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp"
             fi
             echo "Code de retour de letmeinfwd verify avant test: $?"
           fi
           
-          # Lancement du test knock avec mode verbeux
+          # Lancement du test knock sans option non reconnue
           echo "=== Running knock test with MOCK_NFTABLES=$MOCK_NFTABLES ==="
-          ./run-tests.sh knock -v
+          ./run-tests.sh knock
           KNOCK_RESULT=$?
           
           # Inspecter manuellement les règles nftables après le test knock
@@ -274,6 +281,11 @@ jobs:
           nft list ruleset
           echo "Filtrage pour letmein:"
           nft list ruleset | grep -i letmein || echo "Aucune règle avec 'letmein' trouvée"
+          
+          # Vérifier le contenu du répertoire de test pour comprendre la structure
+          echo "=== Contenu du répertoire de test ==="
+          find "$(pwd)" -type f -name "*.conf" | sort
+          ls -la "$(pwd)/conf" || echo "Répertoire conf non trouvé"
           
           # Exécuter explicitement letmeinfwd verify après le test knock
           if [ -x "$(pwd)/../target/debug/letmeinfwd" ]; then
@@ -288,12 +300,16 @@ jobs:
               echo "Version sans --should-exist détectée"
             fi
             
+            # Utiliser le même fichier de configuration que les tests
+            CONF_PATH="$(pwd)/conf/knock.conf"
+            echo "Utilisation du fichier de configuration: $CONF_PATH"
+            
             # Exécuter avec ou sans --should-exist selon la version
             if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
-              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist true
+              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist true
             else
               # Pour la vérification d'existence, on s'attend à un code de retour 0 si la règle existe
-              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp"
+              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp"
             fi
             echo "Code de retour de letmeinfwd verify après test: $?"
           fi
