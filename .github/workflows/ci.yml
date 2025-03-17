@@ -135,7 +135,7 @@ jobs:
           ls -la nft-logs/ 2>/dev/null || echo "No log files found"
           
   simple-tests:
-    name: Simple Integration Tests
+    name: Simple Integration Tests (Real nftables mode)
     runs-on: ubuntu-latest
     container:
       image: rust:alpine
@@ -200,7 +200,8 @@ jobs:
           mkdir -p nft-logs
           
           # Configuration des flags pour les tests
-          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
+          # Mode réel nftables (sans mock)
+          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0 MOCK_NFTABLES=0
           
           # Capture des règles nftables initiales
           nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
