@@ -163,8 +163,7 @@ jobs:
           chmod 777 /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
           
           # Configuration DNS explicite pour résoudre les problèmes de résolution
-          echo "nameserver 8.8.8.8
-nameserver 1.1.1.1" > /etc/resolv.conf
+          echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
           
           # Configurer nftables de base
           echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf
