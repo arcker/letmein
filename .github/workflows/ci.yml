@@ -244,7 +244,22 @@ jobs:
           # Exécuter explicitement letmeinfwd verify juste avant le test
           if [ -x "$(pwd)/../target/debug/letmeinfwd" ]; then
             echo "=== Executing letmeinfwd verify manually before test ==="
-            "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist false
+            
+            # Vérifier si --should-exist est supporté
+            SUPPORTS_SHOULD_EXIST=0
+            if "$(pwd)/../target/debug/letmeinfwd" --help | grep -q -- "--should-exist"; then
+              SUPPORTS_SHOULD_EXIST=1
+              echo "Version avec --should-exist détectée"
+            else
+              echo "Version sans --should-exist détectée"
+            fi
+            
+            # Exécuter avec ou sans --should-exist selon la version
+            if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
+              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist false
+            else
+              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp"
+            fi
             echo "Code de retour de letmeinfwd verify avant test: $?"
           fi
           
@@ -263,7 +278,23 @@ jobs:
           # Exécuter explicitement letmeinfwd verify après le test knock
           if [ -x "$(pwd)/../target/debug/letmeinfwd" ]; then
             echo "=== Executing letmeinfwd verify manually after test ==="
-            "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist true
+            
+            # Vérifier si --should-exist est supporté
+            SUPPORTS_SHOULD_EXIST=0
+            if "$(pwd)/../target/debug/letmeinfwd" --help | grep -q -- "--should-exist"; then
+              SUPPORTS_SHOULD_EXIST=1
+              echo "Version avec --should-exist détectée"
+            else
+              echo "Version sans --should-exist détectée"
+            fi
+            
+            # Exécuter avec ou sans --should-exist selon la version
+            if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
+              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp" --should-exist true
+            else
+              # Pour la vérification d'existence, on s'attend à un code de retour 0 si la règle existe
+              "$(pwd)/../target/debug/letmeinfwd" verify --address "::1" --port 42 --protocol "tcp"
+            fi
             echo "Code de retour de letmeinfwd verify après test: $?"
           fi
           
