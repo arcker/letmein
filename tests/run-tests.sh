@@ -129,22 +129,23 @@ verify_nft_rule_exists()
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
         if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist true; then
+            info "verify_nft_rule_exists: Rule found for $addr port $port/$proto"
             return 0
         else
-            die "ERROR: nftables rule not found for $addr port $port/$proto"
+            die "ERROR: nftables rule not found for $addr port $port/$proto using verify_nft_rule_exists"
             return 1
         fi
     else
         # Ancienne version sans --should-exist, vérifions manuellement
         # Exécuter la commande sans --should-exist et analyser le résultat
         local output
-        output="$("$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" 2>&1)"
+        output="$(nft list ruleset 2>&1)"
         local exit_code=$?
         
         if [ $exit_code -eq 0 ] && echo "$output" | grep -q "Rule found"; then
             return 0
         else
-            die "ERROR: nftables rule not found for $addr port $port/$proto"
+            die "ERROR: nftables rule not found for $addr port $port/$proto using nft command"
             return 1
         fi
     fi
