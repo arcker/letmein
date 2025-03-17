@@ -190,8 +190,8 @@ jobs:
           # Initialiser nftables
           nft -f /etc/nftables/basic.conf
           
-          # Note: Rustup component installation (Clippy) souvent problématique dans ce contexte
-          # Nous l'ignorons car déjà vérifié dans les autres jobs
+          # Add clippy
+          rustup component add clippy
 
           # Donner les permissions d'exécution aux scripts
           chmod +x ./debug-test.sh ./tests/run-tests.sh ./build.sh
