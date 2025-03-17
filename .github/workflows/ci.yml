@@ -15,8 +15,8 @@ jobs:
     strategy:
       matrix:
         toolchain:
-          - 1.81.0 # MSRV
-          - 1.85.0
+          - 1.81 # MSRV
+          - 1.85
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,8 +85,21 @@ jobs:
               
               # Lancer les tests
               echo "Lancement des tests..."
-              sh -c "./tests/run-tests.sh knock close"
-              TEST_RESULT=$?
+              # Exécuter directement les fonctions de test pour éviter les problèmes d'arguments
+              cd ./tests
+              echo "Lancement du test knock..."
+              ./run-tests.sh knock
+              KNOCK_RESULT=$?
+              echo "Lancement du test close..."
+              ./run-tests.sh close
+              CLOSE_RESULT=$?
+              cd ..
+              # Si un des tests a échoué, on considère que tous les tests ont échoué
+              if [ $KNOCK_RESULT -ne 0 ] || [ $CLOSE_RESULT -ne 0 ]; then
+                TEST_RESULT=1
+              else
+                TEST_RESULT=0
+              fi
               
               # Capture après les tests
               nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
@@ -192,8 +205,21 @@ jobs:
           
           # Lancer les tests directement
           echo "Lancement des tests..."
-          sh -c "./tests/run-tests.sh knock close"
-          TEST_RESULT=$?
+          # Exécuter directement les fonctions de test pour éviter les problèmes d'arguments
+          cd ./tests
+          echo "Lancement du test knock..."
+          ./run-tests.sh knock
+          KNOCK_RESULT=$?
+          echo "Lancement du test close..."
+          ./run-tests.sh close
+          CLOSE_RESULT=$?
+          cd ..
+          # Si un des tests a échoué, on considère que tous les tests ont échoué
+          if [ $KNOCK_RESULT -ne 0 ] || [ $CLOSE_RESULT -ne 0 ]; then
+            TEST_RESULT=1
+          else
+            TEST_RESULT=0
+          fi
           
           # Capture après les tests
           nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
