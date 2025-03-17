@@ -113,8 +113,8 @@ jobs:
               exit $TEST_RESULT
             '
 
-      - name: Display nftables logs on failure
-        if: failure()  # Only run when tests fail
+      - name: Display nftables logs and debug info
+        if: always()  # Always run for debugging purposes
         run: |
           echo "==== NFTABLES DEBUG LOGS ===="
           echo "Displaying the initial, before-tests, and after-tests state logs:"
@@ -203,6 +203,21 @@ jobs:
           # Mode réel nftables (sans mock)
           export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0 MOCK_NFTABLES=0
           
+          # Afficher la configuration nftables actuelle avant tout
+          echo "=== Configuration nftables initiale ==="
+          nft list ruleset
+          
+          echo "=== Debugging: s'assurer que le véritable nft est accessible ==="
+          which nft
+          ls -la $(which nft)
+          id
+          
+          echo "=== Debugging: vérifier les droits utilisateur et capabilities ==="
+          mkdir -p "$HOME/.config/letmein"
+          chmod 755 "$HOME/.config/letmein"
+          mkdir -p /var/run/letmein /var/run/letmeind /var/run/letmeinfwd
+          chmod 777 /var/run/letmein /var/run/letmeind /var/run/letmeinfwd
+          
           # Capture des règles nftables initiales
           nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
           
@@ -211,11 +226,22 @@ jobs:
           
           # Lancer les tests directement
           echo "Lancement des tests..."
+          # Mettre à jour l'environnement pour l'exécution des tests
+          export PATH="$(pwd)/target/debug:$PATH"
+          export RUST_LOG=letmeinfwd=debug,letmeind=debug
+          
           # Exécuter directement les fonctions de test pour éviter les problèmes d'arguments
           cd ./tests
+          echo "=== État nftables avant test knock ==="
+          nft list ruleset
+          
           echo "Lancement du test knock..."
           ./run-tests.sh knock
           KNOCK_RESULT=$?
+          
+          echo "=== État nftables après test knock ==="
+          nft list ruleset
+          
           echo "Lancement du test close..."
           ./run-tests.sh close
           CLOSE_RESULT=$?
@@ -236,8 +262,8 @@ jobs:
           
           exit $TEST_RESULT
       
-      - name: Display nftables logs on failure
-        if: failure()  # Only run when tests fail
+      - name: Display nftables logs and debug info
+        if: always()  # Always run for debugging purposes
         run: |
           echo "==== NFTABLES DEBUG LOGS ===="
           echo "Displaying the initial, before-tests, and after-tests state logs:"
