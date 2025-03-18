@@ -6,6 +6,8 @@ on:
 
 env: 
   CARGO_TERM_COLOR: always
+  CARGO_TERM_QUIET: true
+  CARGO_OUTPUT_FORMAT: short
   MOCK_NFTABLES: 1
   LETMEIN_DISABLE_SECCOMP: 1
 
@@ -23,7 +25,7 @@ jobs:
       - run: rustup update ${{ matrix.toolchain }}
       - run: rustup default ${{ matrix.toolchain }}
       - run: rustup component add clippy
-      - run: cargo build --verbose
+      - run: cargo build -q
       - run: sh ./tests/run-tests.sh
 
   client_only:
@@ -41,7 +43,7 @@ jobs:
       - run: rustup update ${{ matrix.toolchain }}
       - run: rustup default ${{ matrix.toolchain }}
       - run: rustup component add clippy
-      - run: cargo build --verbose --package letmein
+      - run: cargo build -q --package letmein
       - run: cargo clippy --package letmein -- --deny warnings
       - run: cargo clippy --tests --package letmein -- --deny warnings
       - run: cargo test --package letmein

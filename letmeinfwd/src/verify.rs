@@ -60,19 +60,19 @@ pub async fn verify_nft_rule(
     let ruleset = match get_current_ruleset_with_args_async(None::<&str>, None::<&str>).await {
         Ok(ruleset) => ruleset,
         Err(e) => {
-            eprintln!("Error getting nftables ruleset: {}", e);
-            eprintln!("NFT_JSON_OUTPUT is set to: {}", json_output);
+            eprintln!("\x1b[1;31mError getting nftables ruleset: {}\x1b[0m", e);
+            eprintln!("\x1b[1;33mNFT_JSON_OUTPUT is set to: {}\x1b[0m", json_output);
             
             // Try to run nft directly to see what's happening
-            eprintln!("Trying direct nft command for diagnostics:");
+            eprintln!("\x1b[1;36mTrying direct nft command for diagnostics:\x1b[0m");
             // Execute the nft command with the same arguments
             let output = Command::new("nft").args(["list", "ruleset"]).output().unwrap();
-            eprintln!("nft output: {}", String::from_utf8_lossy(&output.stdout));
-            eprintln!("nft stderr: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!("\x1b[1;32m==== nft output: ====\x1b[0m\n{}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("\x1b[1;31m==== nft stderr: ====\x1b[0m\n{}", String::from_utf8_lossy(&output.stderr));
             // For CI environment, we could skip verification if we can't get the ruleset
             if env::var("CI").is_ok() {
-                eprintln!("CI environment detected, skipping verification due to nftables error");
-                println!("✓ OK: Verification skipped in CI environment for {} port {}/{}", 
+                eprintln!("\x1b[1;33mCI environment detected, skipping verification due to nftables error\x1b[0m");
+                println!("\x1b[1;32m✓ OK: Verification skipped in CI environment for {} port {}/{}\x1b[0m", 
                         addr_str, port, proto);
                 return Ok(true); // Skip verification in CI
             }
