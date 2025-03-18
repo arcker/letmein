@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Debug script for tests with detailed nftables logs
 
 # Display colors
@@ -12,7 +12,8 @@ NC='\033[0m' # No Color
 LOG_DIR="$(pwd)/nft-logs"
 
 # Default options
-MOCK_NFTABLES="1" # By default, use the nftables stub
+# Respect environment variable MOCK_NFTABLES if déjà définie
+MOCK_NFTABLES=${MOCK_NFTABLES:-"1"} # Par défaut, utiliser le stub nftables si non défini
 DEBUG_INTERVAL="5" # Default interval between state captures (seconds)
 RUN_TEST="knock close" # Default tests to run
 
@@ -114,7 +115,7 @@ start_periodic_capture() {
     TEMP_SCRIPT="$LOG_DIR/capture-$SESSION_ID.sh"
     
     cat > "$TEMP_SCRIPT" << EOF
-#!/bin/bash
+#!/bin/sh
 count=0
 while true; do
     count=\$((count+1))
