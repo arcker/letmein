@@ -129,8 +129,8 @@ verify_nft_rule_exists()
     local verify_result=0
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
-        info "Using letmeinfwd verify with --should-exist to check rule..."
-        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist; then
+        info "Using letmeinfwd verify with --should-exist=true to check rule..."
+        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist=true; then
             info "SUCCESS: Rule found for $addr port $port/$proto using letmeinfwd verify"
             return 0
         else
@@ -204,9 +204,9 @@ verify_nft_rule_missing()
     local verify_result=0
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
-        info "Using letmeinfwd verify with --should-exist to check rule absence..."
-        # Pour vérifier l'absence de règle, on s'attend à ce que la commande avec --should-exist échoue
-        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist; then
+        info "Using letmeinfwd verify with --should-exist=true to check rule absence..."
+        # Pour vérifier l'absence de règle, on s'attend à ce que la commande avec --should-exist=true échoue
+        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist=true; then
             verify_result=1
             warning "First verification indicates rule is still present, trying direct nft check as fallback..."
         else
