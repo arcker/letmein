@@ -14,7 +14,8 @@ use nftables::{
     helper::get_current_ruleset_with_args_async,
     schema::{NfListObject, NfObject},
 };
-use std::{env, net::IpAddr};
+
+use std::{env, net::IpAddr, process::Command};
 
 /// Verify if a rule exists or is missing in the nftables ruleset
 /// 
@@ -64,7 +65,10 @@ pub async fn verify_nft_rule(
             
             // Try to run nft directly to see what's happening
             eprintln!("Trying direct nft command for diagnostics:");
-            
+            // Execute the nft command with the same arguments
+            let output = Command::new("nft").args(&["list", "ruleset"]).output().unwrap();
+            eprintln!("nft output: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("nft stderr: {}", String::from_utf8_lossy(&output.stderr));
             // For CI environment, we could skip verification if we can't get the ruleset
             if env::var("CI").is_ok() {
                 eprintln!("CI environment detected, skipping verification due to nftables error");
