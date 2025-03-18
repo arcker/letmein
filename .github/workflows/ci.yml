@@ -314,14 +314,19 @@ jobs:
             # Tester différentes approches pour contourner l'erreur JSON
             echo "Tentative avec NFT_JSON_OUTPUT=1"
             if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
-              NFT_JSON_OUTPUT=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist true || echo "Échec avec code: $?"
+              NFT_JSON_OUTPUT=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist || echo "Échec avec code: $?"
             else
               # Pour la vérification d'existence, on s'attend à un code de retour 0 si la règle existe
               NFT_JSON_OUTPUT=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" || echo "Échec avec code: $?"
             fi
             
             echo "Tentative avec MOCK_NFTABLES=1 (contournement)"
-            MOCK_NFTABLES=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist true || echo "Échec avec MOCK_NFTABLES=1: $?"
+            # Vérifier si la version supporte --should-exist comme flag sans argument
+            if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
+              MOCK_NFTABLES=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist || echo "Échec avec MOCK_NFTABLES=1: $?"
+            else
+              MOCK_NFTABLES=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" || echo "Échec avec MOCK_NFTABLES=1: $?"
+            fi
             echo "Code de retour de letmeinfwd verify après test: $?"
           fi
           

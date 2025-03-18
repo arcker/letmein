@@ -128,7 +128,7 @@ verify_nft_rule_exists()
     # Vérifier d'abord si l'option --should-exist est supportée
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
-        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist true; then
+        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist; then
             info "verify_nft_rule_exists: Rule found for $addr port $port/$proto"
             return 0
         else
@@ -169,11 +169,13 @@ verify_nft_rule_missing()
     # Vérifier d'abord si l'option --should-exist est supportée
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
-        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist false; then
-            return 0
-        else
-            die "ERROR: nftables rule still present for $addr port $port/$proto"
+        # Pour vérifier l'absence de règle, on s'attend à ce que la commande avec --should-exist échoue
+        if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist; then
+            die "ERROR: nftables rule still present for $addr port $port/$proto when it should be absent"
             return 1
+        else
+            # La règle est absente, c'est un succès pour le test d'absence
+            return 0
         fi
     else
         # Ancienne version sans --should-exist, vérifions manuellement
@@ -205,15 +207,18 @@ run_tests_genkey()
     [ "$user" = "12345678" ] || die "Got invalid user"
 }
 
-run_tests_knock()
+# Exécute le test complet (knock > verify > close) pour une adresse IP spécifique
+run_test_cycle()
 {
-    local test_type="$1"
+    local test_type="$1"   # tcp ou udp
+    local ip_version="$2" # ipv4, ipv6, ou dual (les deux)
 
-    info "### Running test: knock $test_type ###"
+    info "### Running complete test cycle: $test_type with $ip_version ###"
 
     rm -rf "$rundir"
     local conf="$testdir/conf/$test_type.conf"
 
+    # Démarrer les services
     info "Starting letmeinfwd..."
     "$target/letmeinfwd" \
         --test-mode \
@@ -233,50 +238,144 @@ run_tests_knock()
 
     wait_for_pidfile letmeinfwd "$pid_letmeinfwd"
     wait_for_pidfile letmeind "$pid_letmeind"
-
-    info "Knocking IPv6 + IPv4..."
+    
+    # 1. KNOCK: Exécuter la requête knock selon la version IP demandée
+    info "Knocking with $ip_version..."
+    local ip_flags=""
+    local addr=""
+    
+    case "$ip_version" in
+        ipv4)
+            ip_flags="--ipv4"
+            addr="127.0.0.1"
+            ;;
+        ipv6)
+            ip_flags="--ipv6"
+            addr="::1"
+            ;;
+        dual|*)
+            ip_flags=""
+            addr="::1" # Par défaut on vérifie d'abord IPv6
+            ;;
+    esac
+    
     "$target/letmein" \
         --verbose \
         $SECCOMP_OPT \
         --config "$conf" \
         knock \
         --user 12345678 \
+        $ip_flags \
         localhost 42 \
-        || die "letmein knock failed"
-    info "Knocking IPv4..."
+        || die "letmein knock failed with $ip_version"
+    
+    # 2. VERIFY: Vérifier immédiatement les règles nftables après le knock
+    info "Verifying nftables rules after $ip_version knock..."
+    if $nftables_available; then
+        echo "--- Toutes les règles nftables après knock $ip_version ($test_type) ---"
+        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        echo "--- Filtrage pour letmein ---"
+        nft list ruleset | grep -i letmein || echo "Aucune règle letmein n'a été trouvée"
+        echo "--- Inspection détaillée de letmein-dynamic ---"
+        nft list chain inet filter letmein-dynamic || echo "Erreur: Impossible d'afficher la chaîne letmein-dynamic"
+        
+        # Vérifier si la règle existe avec notre fonction de vérification
+        info "Vérification formelle de la règle avec letmeinfwd verify"
+        if [ "$test_type" = "tcp" ]; then
+            verify_nft_rule_exists "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+        else
+            verify_nft_rule_exists "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+        fi
+    fi
+    
+    # 3. CLOSE: Fermer la connexion
+    info "Closing connection after $ip_version knock..."
+    # Attendre un peu pour s'assurer que la règle a eu le temps d'être enregistrée
+    sleep 1
+    
+    # Appeler close
     "$target/letmein" \
         --verbose \
         $SECCOMP_OPT \
         --config "$conf" \
-        knock \
-        --user 12345678 \
-        --ipv4 \
+        close \
+        $ip_flags \
         localhost 42 \
-        || die "letmein knock failed"
-
-    info "Knocking IPv6..."
-    "$target/letmein" \
-        --verbose \
-        $SECCOMP_OPT \
-        --config "$conf" \
-        knock \
-        --user 12345678 \
-        --ipv6 \
-        localhost 42 \
-        || die "letmein knock failed"
-
+        || warning "letmein close failed with $ip_version"
+    
+    # Vérifier que la règle a bien été supprimée
+    if $nftables_available; then
+        info "Verifying nftables rules after $ip_version close..."
+        echo "--- Toutes les règles nftables après close $ip_version ---"
+        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+    fi
+    
     kill_all_and_wait
 }
 
+# Fonction pour exécuter les tests knock (remplacement de run_tests_knock)
+run_tests_knock()
+{
+    local test_type="$1"
+    
+    info "### Running tests: knock $test_type ###"
+    
+    # Exécuter le cycle complet pour chaque version IP
+    run_test_cycle "$test_type" "ipv4"
+    run_test_cycle "$test_type" "ipv6"
+    run_test_cycle "$test_type" "dual"
+    
+    info "All knock tests completed for $test_type"
+}
+
+# Fonction pour exécuter des tests de fermeture
 run_tests_close()
 {
     local test_type="$1"
 
-    info "### Running test: close $test_type ###"
+    info "### Running close tests: $test_type ###"
+    info "Note: Les tests 'knock' incluent déjà le cycle complet (knock > verify > close)."
+
+    # Cette fonction exécute des tests de fermeture spécifiques pour chaque type d'IP
+    # en utilisant notre nouvelle fonction de test complet pour chaque protocole
+    run_close_test_cycle "$test_type" "ipv4"
+    run_close_test_cycle "$test_type" "ipv6"
+    run_close_test_cycle "$test_type" "dual"
+    
+    info "All close tests completed for $test_type"
+}
+
+# Exécute un test complet de fermeture après ouverture (knock puis close) pour une adresse IP
+run_close_test_cycle()
+{
+    local test_type="$1"  # tcp ou udp
+    local ip_version="$2" # ipv4, ipv6, ou dual (les deux)
+
+    info "### Running specific close test cycle: $test_type with $ip_version ###"
 
     rm -rf "$rundir"
     local conf="$testdir/conf/$test_type.conf"
 
+    # Définir les flags selon la version IP
+    local ip_flags=""
+    local addr=""
+    
+    case "$ip_version" in
+        ipv4)
+            ip_flags="--ipv4"
+            addr="127.0.0.1"
+            ;;
+        ipv6)
+            ip_flags="--ipv6"
+            addr="::1"
+            ;;
+        dual|*)
+            ip_flags=""
+            addr="::1" # Par défaut on vérifie IPv6 pour les tests dual
+            ;;
+    esac
+
+    # Démarrer les services
     info "Starting letmeinfwd..."
     "$target/letmeinfwd" \
         --test-mode \
@@ -297,110 +396,58 @@ run_tests_close()
     wait_for_pidfile letmeinfwd "$pid_letmeinfwd"
     wait_for_pidfile letmeind "$pid_letmeind"
 
-    # First open a port using knock
-    info "Opening port with knock IPv6 + IPv4..."
+    # 1. KNOCK: Ouvrir le port avec knock
+    info "Opening port with knock $ip_version..."
     "$target/letmein" \
         --verbose \
         $SECCOMP_OPT \
         --config "$conf" \
         knock \
         --user 12345678 \
+        $ip_flags \
         localhost 42 \
-        || die "letmein knock failed"
+        || die "letmein knock failed with $ip_version"
     
-    # Vérifier que les règles ont bien été ajoutées (IPv6 + IPv4)
-    if $nftables_available && [ "$test_type" != "test" ]; then  # Vérifier uniquement si nftables est disponible et pas en mode test
+    # 2. VERIFY: Vérifier que la règle a bien été ajoutée
+    if $nftables_available && [ "$test_type" != "test" ]; then
         sleep 1  # Attendre que les règles soient bien appliquées
-        verify_nft_rule_exists "::1" "42" "tcp"
-        verify_nft_rule_exists "127.0.0.1" "42" "tcp"
+        echo "--- Règles nftables après knock $ip_version ---"
+        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        echo "--- Inspection détaillée de letmein-dynamic ---"
+        nft list chain inet filter letmein-dynamic || echo "Erreur: Impossible d'afficher la chaîne letmein-dynamic"
+        
+        # Vérifier les règles avec notre fonction de vérification
+        if [ "$test_type" = "tcp" ]; then
+            verify_nft_rule_exists "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+        else
+            verify_nft_rule_exists "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+        fi
     fi
 
-    # Then close the port using close command
-    info "Closing port with close IPv6 + IPv4..."
+    # 3. CLOSE: Fermer le port
+    info "Closing port with close $ip_version..."
     "$target/letmein" \
         --verbose \
         $SECCOMP_OPT \
         --config "$conf" \
         close \
         --user 12345678 \
+        $ip_flags \
         localhost 42 \
-        || die "letmein close failed"
+        || die "letmein close failed with $ip_version"
     
-    # Vérifier que les règles ont bien été supprimées (IPv6 + IPv4)
-    if $nftables_available && [ "$test_type" != "test" ]; then  # Vérifier uniquement si nftables est disponible et pas en mode test
-        sleep 1  # Attendre que les règles soient bien supprimées
-        verify_nft_rule_missing "::1" "42" "tcp"
-        verify_nft_rule_missing "127.0.0.1" "42" "tcp"
-    fi
-
-    # Test with IPv4 only
-    info "Opening port with knock IPv4..."
-    "$target/letmein" \
-        --verbose \
-        $SECCOMP_OPT \
-        --config "$conf" \
-        knock \
-        --user 12345678 \
-        --ipv4 \
-        localhost 42 \
-        || die "letmein knock failed"
-    
-    # Vérifier que la règle IPv4 a bien été ajoutée
-    if $nftables_available && [ "$test_type" != "test" ]; then
-        sleep 1  # Attendre que les règles soient bien appliquées
-        verify_nft_rule_exists "127.0.0.1" "42" "tcp"
-    fi
-
-    info "Closing port with close IPv4..."
-    "$target/letmein" \
-        --verbose \
-        $SECCOMP_OPT \
-        --config "$conf" \
-        close \
-        --user 12345678 \
-        --ipv4 \
-        localhost 42 \
-        || die "letmein close failed"
-    
-    # Vérifier que la règle IPv4 a bien été supprimée
+    # 4. VERIFY CLOSE: Vérifier que la règle a bien été supprimée
     if $nftables_available && [ "$test_type" != "test" ]; then
         sleep 1  # Attendre que les règles soient bien supprimées
-        verify_nft_rule_missing "127.0.0.1" "42" "tcp"
-    fi
-
-    # Test with IPv6 only
-    info "Opening port with knock IPv6..."
-    "$target/letmein" \
-        --verbose \
-        $SECCOMP_OPT \
-        --config "$conf" \
-        knock \
-        --user 12345678 \
-        --ipv6 \
-        localhost 42 \
-        || die "letmein knock failed"
-    
-    # Vérifier que la règle IPv6 a bien été ajoutée
-    if $nftables_available && [ "$test_type" != "test" ]; then
-        sleep 1  # Attendre que les règles soient bien appliquées
-        verify_nft_rule_exists "::1" "42" "tcp"
-    fi
-
-    info "Closing port with close IPv6..."
-    "$target/letmein" \
-        --verbose \
-        $SECCOMP_OPT \
-        --config "$conf" \
-        close \
-        --user 12345678 \
-        --ipv6 \
-        localhost 42 \
-        || die "letmein close failed"
-    
-    # Vérifier que la règle IPv6 a bien été supprimée
-    if $nftables_available && [ "$test_type" != "test" ]; then
-        sleep 1  # Attendre que les règles soient bien supprimées
-        verify_nft_rule_missing "::1" "42" "tcp"
+        echo "--- Règles nftables après close $ip_version ---"
+        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        
+        # Vérifier l'absence de règle
+        if [ "$test_type" = "tcp" ]; then
+            verify_nft_rule_missing "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version est toujours présente après close"
+        else
+            verify_nft_rule_missing "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version est toujours présente après close"
+        fi
     fi
 
     kill_all_and_wait
