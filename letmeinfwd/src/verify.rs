@@ -66,7 +66,7 @@ pub async fn verify_nft_rule(
             // Try to run nft directly to see what's happening
             eprintln!("Trying direct nft command for diagnostics:");
             // Execute the nft command with the same arguments
-            let output = Command::new("nft").args(&["list", "ruleset"]).output().unwrap();
+            let output = Command::new("nft").args(["list", "ruleset"]).output().unwrap();
             eprintln!("nft output: {}", String::from_utf8_lossy(&output.stdout));
             eprintln!("nft stderr: {}", String::from_utf8_lossy(&output.stderr));
             // For CI environment, we could skip verification if we can't get the ruleset
