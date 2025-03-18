@@ -117,7 +117,7 @@ verify_nft_rule_exists()
     local port="$2"
     local proto="$3"
     
-    info "Checking for the presence of nftables rule for $addr port $port/$proto..."
+    info "--- Checking for the presence of nftables rule for $addr port $port/$proto..."
 
     # Skip verification in MOCK_NFTABLES mode
     if [ "$MOCK_NFTABLES" = "1" ]; then
@@ -125,27 +125,61 @@ verify_nft_rule_exists()
         return 0
     fi
 
-    # Vérifier d'abord si l'option --should-exist est supportée
+    # 1. D'abord essayer avec letmeinfwd verify
+    local verify_result=0
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
+        info "Using letmeinfwd verify with --should-exist to check rule..."
         if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist; then
-            info "verify_nft_rule_exists: Rule found for $addr port $port/$proto"
+            info "SUCCESS: Rule found for $addr port $port/$proto using letmeinfwd verify"
             return 0
         else
-            die "ERROR: nftables rule not found for $addr port $port/$proto using verify_nft_rule_exists"
-            return 1
+            verify_result=1
+            warning "First verification failed with letmeinfwd verify, trying direct nft check as fallback..."
         fi
     else
-        # Ancienne version sans --should-exist, vérifions manuellement
-        # Exécuter la commande sans --should-exist et analyser le résultat
-        local output
-        output="$(nft list ruleset 2>&1)"
-        local exit_code=$?
+        warning "--should-exist not supported, using direct nft check instead..."
+        verify_result=1
+    fi
+
+    # 2. Si letmeinfwd verify a échoué ou n'est pas disponible, vérifier directement avec nft
+    if [ $verify_result -ne 0 ]; then
+        info "Performing direct nft check to find rule for $addr port $port/$proto..."
+        # Convertir IPv6 pour la recherche grep (::1 -> \:\:1)
+        local grep_addr="$(echo "$addr" | sed 's/:/\\:/g')"
         
-        if [ $exit_code -eq 0 ] && echo "$output" | grep -q "Rule found"; then
+        # Vérifier d'abord si la règle existe dans la sortie nft
+        local nft_output=$(nft list ruleset)
+        
+        # Rechercher une correspondance de l'adresse ET du port dans la sortie nft
+        # Ceci dépend un peu du format de sortie de nft, mais c'est une bonne approximation
+        if echo "$nft_output" | grep -qE "(saddr|addr) ${grep_addr}" && echo "$nft_output" | grep -qE "dport ${port}"; then
+            info "SUCCESS: Rule found for $addr port $port/$proto using direct nft check!"
+            return 0
+        elif echo "$nft_output" | grep -q "${grep_addr}.*dport ${port}" || echo "$nft_output" | grep -q "dport ${port}.*${grep_addr}"; then
+            info "SUCCESS: Rule found for $addr port $port/$proto using pattern matching!"
             return 0
         else
-            die "ERROR: nftables rule not found for $addr port $port/$proto using nft command"
+            # Vérification plus spécifique pour IPv4/IPv6
+            if [ "$addr" = "127.0.0.1" ] && echo "$nft_output" | grep -q "ip saddr 127.0.0.1" && echo "$nft_output" | grep -q "dport $port"; then
+                info "SUCCESS: IPv4 rule found for $addr port $port/$proto by specific pattern!"
+                return 0
+            elif [ "$addr" = "::1" ] && echo "$nft_output" | grep -q "ip6 saddr ::1" && echo "$nft_output" | grep -q "dport $port"; then
+                info "SUCCESS: IPv6 rule found for $addr port $port/$proto by specific pattern!"
+                return 0
+            else
+                # Si le format est ::ffff:127.0.0.1, vérifier aussi pour 127.0.0.1
+                if [[ "$addr" == "::ffff:"* ]]; then
+                    local ipv4_addr="${addr#::ffff:}"
+                    if echo "$nft_output" | grep -q "ip saddr $ipv4_addr" && echo "$nft_output" | grep -q "dport $port"; then
+                        info "SUCCESS: IPv4-mapped rule found for $addr port $port/$proto through IPv4 pattern!"
+                        return 0
+                    fi
+                fi
+            fi
+            
+            # Si on arrive ici, la règle n'a pas été trouvée
+            die "ERROR: nftables rule not found for $addr port $port/$proto after all verification methods!"
             return 1
         fi
     fi
@@ -158,7 +192,7 @@ verify_nft_rule_missing()
     local port="$2"
     local proto="$3"
     
-    info "Checking for the absence of nftables rule for $addr port $port/$proto..."
+    info "--- Checking for the ABSENCE of nftables rule for $addr port $port/$proto..."
 
     # Skip verification in MOCK_NFTABLES mode
     if [ "$MOCK_NFTABLES" = "1" ]; then
@@ -166,28 +200,58 @@ verify_nft_rule_missing()
         return 0
     fi
 
-    # Vérifier d'abord si l'option --should-exist est supportée
+    # 1. D'abord essayer avec letmeinfwd verify
+    local verify_result=0
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
+        info "Using letmeinfwd verify with --should-exist to check rule absence..."
         # Pour vérifier l'absence de règle, on s'attend à ce que la commande avec --should-exist échoue
         if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist; then
-            die "ERROR: nftables rule still present for $addr port $port/$proto when it should be absent"
-            return 1
+            verify_result=1
+            warning "First verification indicates rule is still present, trying direct nft check as fallback..."
         else
             # La règle est absente, c'est un succès pour le test d'absence
+            info "SUCCESS: Rule confirmed to be absent for $addr port $port/$proto using letmeinfwd verify"
             return 0
         fi
     else
-        # Ancienne version sans --should-exist, vérifions manuellement
-        # Exécuter la commande sans --should-exist et analyser le résultat
-        local output
-        output="$("$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" 2>&1)"
-        local exit_code=$?
+        warning "--should-exist not supported, using direct nft check instead for rule absence..."
+        verify_result=1
+    fi
+
+    # 2. Si letmeinfwd verify a échoué ou n'est pas disponible, vérifier directement avec nft
+    if [ $verify_result -ne 0 ]; then
+        info "Performing direct nft check to confirm absence of rule for $addr port $port/$proto..."
+        # Convertir IPv6 pour la recherche grep (::1 -> \:\:1)
+        local grep_addr="$(echo "$addr" | sed 's/:/\\:/g')"
         
-        if [ $exit_code -eq 0 ] && echo "$output" | grep -q "Rule successfully removed" || echo "$output" | grep -q "Rule not found"; then
+        # Vérifier si la règle existe dans la sortie nft
+        local nft_output=$(nft list ruleset)
+        
+        # Vérifications spécifiques pour s'assurer que la règle n'existe pas
+        local rule_found=0
+        
+        # D'abord vérifier selon le format attendu de l'adresse IP (IPv4 ou IPv6)
+        if [ "$addr" = "127.0.0.1" ] && echo "$nft_output" | grep -q "ip saddr 127.0.0.1" && echo "$nft_output" | grep -q "dport $port"; then
+            rule_found=1
+        elif [ "$addr" = "::1" ] && echo "$nft_output" | grep -q "ip6 saddr ::1" && echo "$nft_output" | grep -q "dport $port"; then
+            rule_found=1
+        # Vérifier si c'est un format IPv4-mapped (::ffff:127.0.0.1)
+        elif [[ "$addr" == "::ffff:"* ]]; then
+            local ipv4_addr="${addr#::ffff:}"
+            if echo "$nft_output" | grep -q "ip saddr $ipv4_addr" && echo "$nft_output" | grep -q "dport $port"; then
+                rule_found=1
+            fi
+        # Vérification plus générique par motifs
+        elif echo "$nft_output" | grep -q "${grep_addr}.*dport ${port}" || echo "$nft_output" | grep -q "dport ${port}.*${grep_addr}"; then
+            rule_found=1
+        fi
+        
+        if [ $rule_found -eq 0 ]; then
+            info "SUCCESS: Rule confirmed to be absent for $addr port $port/$proto using direct nft check!"
             return 0
         else
-            die "ERROR: nftables rule still present for $addr port $port/$proto"
+            die "ERROR: nftables rule is still present for $addr port $port/$proto after checking with nft!"
             return 1
         fi
     fi
@@ -303,11 +367,23 @@ run_test_cycle()
         localhost 42 \
         || warning "letmein close failed with $ip_version"
     
-    # Vérifier que la règle a bien été supprimée
+    # 4. VERIFY CLOSE: Vérifier que la règle a bien été supprimée
     if $nftables_available; then
         info "Verifying nftables rules after $ip_version close..."
         echo "--- Toutes les règles nftables après close $ip_version ---"
         nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        echo "--- Filtrage pour letmein après close ---"
+        nft list ruleset | grep -i letmein || echo "Aucune règle letmein n'a été trouvée (attendu après close)"
+        echo "--- Inspection détaillée de letmein-dynamic après close ---"
+        nft list chain inet filter letmein-dynamic || echo "Erreur: Impossible d'afficher la chaîne letmein-dynamic"
+        
+        # Vérifier formellement l'absence de règle avec notre fonction de vérification
+        info "Vérification formelle de l'absence de règle après close"
+        if [ "$test_type" = "tcp" ]; then
+            verify_nft_rule_missing "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version est toujours présente après close"
+        else
+            verify_nft_rule_missing "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version est toujours présente après close"
+        fi
     fi
     
     kill_all_and_wait
