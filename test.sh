@@ -278,29 +278,30 @@ EOF
     # --- Exécuter les tests dans Docker avec les vrais nftables ---
     echo -e "${BLUE}Lancement du conteneur Docker pour les tests...${NC}"
     
-    # Configuration des options Docker pour le conteneur de test
-    DOCKER_OPTIONS="--rm"
-    DOCKER_OPTIONS="$DOCKER_OPTIONS --privileged"
-    DOCKER_OPTIONS="$DOCKER_OPTIONS --cap-add=NET_ADMIN"
-    DOCKER_OPTIONS="$DOCKER_OPTIONS --cap-add=SYS_ADMIN"
-    DOCKER_OPTIONS="$DOCKER_OPTIONS --dns 8.8.8.8"
-    DOCKER_OPTIONS="$DOCKER_OPTIONS --dns 1.1.1.1"
-    DOCKER_OPTIONS="$DOCKER_OPTIONS --security-opt seccomp=unconfined"
+    # --- Construction explicite de la commande Docker ---
+    echo -e "${BLUE}Construction de la commande Docker...${NC}"
     
-    # Configuration des variables d'environnement
-    DOCKER_ENV="-e LETMEIN_DISABLE_SECCOMP=1"
-    DOCKER_ENV="$DOCKER_ENV -e DISABLE_STRACE=1"
-    DOCKER_ENV="$DOCKER_ENV -e LOG_LEVEL='$LOG_LEVEL'"
-    DOCKER_ENV="$DOCKER_ENV -e RUST_BACKTRACE=0"
-    DOCKER_ENV="$DOCKER_ENV -e LOG_DIR='$LOG_DIR'"
-    DOCKER_ENV="$DOCKER_ENV -e TEST_ARGS='$test_args'"
-    
-    # Configuration des montages de volumes
-    DOCKER_VOLUMES="-v $(pwd):/app"
-    DOCKER_VOLUMES="$DOCKER_VOLUMES -v $DOCKER_SCRIPT:/run-docker-tests.sh"
-    
-    # Exécution du conteneur
-    docker run $DOCKER_OPTIONS $DOCKER_ENV $DOCKER_VOLUMES --workdir /app letmein-test /run-docker-tests.sh
+    # Construction de la commande Docker de manière plus sécurisée
+    # en évitant les problèmes d'expansion de variables
+    docker run \
+        --rm \
+        --privileged \
+        --cap-add=NET_ADMIN \
+        --cap-add=SYS_ADMIN \
+        --dns 8.8.8.8 \
+        --dns 1.1.1.1 \
+        --security-opt seccomp=unconfined \
+        -e LETMEIN_DISABLE_SECCOMP=1 \
+        -e DISABLE_STRACE=1 \
+        -e "LOG_LEVEL=$LOG_LEVEL" \
+        -e RUST_BACKTRACE=0 \
+        -e "LOG_DIR=$LOG_DIR" \
+        -e "TEST_ARGS=$test_args" \
+        -v "$(pwd):/app" \
+        -v "$DOCKER_SCRIPT:/run-docker-tests.sh" \
+        --workdir /app \
+        letmein-test \
+        /run-docker-tests.sh
         
     # Nettoyage du script temporaire
     rm -f "$DOCKER_SCRIPT"

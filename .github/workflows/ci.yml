@@ -40,7 +40,10 @@ jobs:
         run: cargo build -q
           
       - name: Run tests
-        run: sudo -E sh ./tests/run-tests.sh
+        run: |
+          # Utiliser le script unifié test.sh au lieu de run-tests.sh directement
+          # Cette approche est cohérente avec l'exécution locale des tests
+          sudo -E ./test.sh --local
 
   client_only:
     name: Client only
@@ -180,8 +183,8 @@ jobs:
           # Capture avant les tests
           nft list ruleset > nft-logs/nft-state-before-tests-$(date +%Y%m%d-%H%M%S).log
           
-          # Lancer les tests directement
-          echo "Lancement des tests..."
+          # Utiliser le script unifié test.sh comme point d'entrée des tests
+          echo "Lancement des tests unifiés via test.sh..."
           # Mettre à jour l'environnement pour l'exécution des tests avec logs détaillés
           export PATH="$(pwd)/target/debug:$PATH"
           export RUST_LOG=letmeinfwd=trace,letmeind=trace,nftables=debug
@@ -192,19 +195,20 @@ jobs:
           echo "=== letmeinfwd path ==="
           which letmeinfwd || echo "letmeinfwd not found in PATH"
           
-          # Exécuter directement les fonctions de test pour éviter les problèmes d'arguments
-          cd ./tests
-          echo "=== État nftables avant test knock ==="
+          # Utiliser test.sh en mode local pour exécuter tous les tests
+          echo "=== État nftables avant les tests ==="
           nft list ruleset
           
-          echo "Lancement du test knock..."
+          echo "Lancement des tests via le script unifié test.sh..."
           
           # Exécuter explicitement letmeinfwd verify juste avant le test
-          if [ -x "$(pwd)/../target/debug/letmeinfwd" ]; then
-            echo "=== Executing letmeinfwd verify manually before test ==="
-            
-            # Vérifier si --should-exist est supporté
-            SUPPORTS_SHOULD_EXIST=0
+          # Exécuter le script unifié test.sh pour lancer tous les tests
+          cd ..
+          chmod +x ./test.sh
+          
+          # Capture l'état initial de nftables avant les tests
+          mkdir -p nft-logs
+          nft list ruleset > nft-logs/nft-state-before-test-sh-$(date +%Y%m%d-%H%M%S).log
             if "$(pwd)/../target/debug/letmeinfwd" --help | grep -q -- "--should-exist"; then
               SUPPORTS_SHOULD_EXIST=1
               echo "Version avec --should-exist détectée"
@@ -226,13 +230,13 @@ jobs:
             echo "Code de retour de letmeinfwd verify avant test: $?"
           fi
           
-          # Lancement du test knock
-          echo "=== Running knock test with real nftables ==="
-          ./run-tests.sh knock
-          KNOCK_RESULT=$?
+          # Exécuter les tests avec le script unifié
+          echo "=== Exécution des tests unifiés avec test.sh ==="
+          ./test.sh --verbose knock close
+          TEST_RESULT=$?
           
-          # Inspecter manuellement les règles nftables après le test knock
-          echo "=== Inspecting nftables rules manually after knock ==="
+          # Inspecter manuellement les règles nftables après les tests
+          echo "=== Inspecting nftables rules after unified tests ==="
           echo "Toutes les règles nftables:"
           nft list ruleset
           echo "Filtrage pour letmein:"
@@ -287,16 +291,12 @@ jobs:
           echo "=== État nftables après test knock ==="
           nft list ruleset
           
-          echo "Lancement du test close..."
-          ./run-tests.sh close
-          CLOSE_RESULT=$?
-          cd ..
-          # Si un des tests a échoué, on considère que tous les tests ont échoué
-          if [ $KNOCK_RESULT -ne 0 ] || [ $CLOSE_RESULT -ne 0 ]; then
-            TEST_RESULT=1
-          else
-            TEST_RESULT=0
-          fi
+          # Capture finale de l'état nftables
+          echo "=== Capture finale de l'état nftables ==="
+          nft list ruleset > nft-logs/nft-state-after-all-tests-$(date +%Y%m%d-%H%M%S).log
+          
+          # Déjà déterminé par test.sh
+          echo "=== Résultat des tests unifiés: $TEST_RESULT ==="
           
           # Capture après les tests
           nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
