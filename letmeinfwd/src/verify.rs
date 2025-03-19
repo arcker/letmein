@@ -29,15 +29,8 @@ pub async fn verify_nft_rule(
     proto: &str,
     should_exist: bool,
 ) -> ah::Result<bool> {
-    // Check if MOCK_NFTABLES is set, if so, skip actual verification
-    if let Ok(mock_value) = env::var("MOCK_NFTABLES") {
-        if mock_value == "1" {
-            println!("MOCK_NFTABLES=1 detected, skipping nftables rule verification");
-            println!("✓ OK: Verification skipped in MOCK_NFTABLES mode for {} port {}/{}", 
-                    addr_str, port, proto);
-            return Ok(true); // Always succeed in mock mode
-        }
-    }
+    // Toujours vérifier les règles nftables réelles
+    println!("Verifying nftables rules for {} port {}/{}", addr_str, port, proto);
 
     // Parse the IP address
     let addr: IpAddr = match addr_str.parse() {

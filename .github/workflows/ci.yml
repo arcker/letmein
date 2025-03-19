@@ -8,7 +8,6 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_TERM_QUIET: true
   CARGO_OUTPUT_FORMAT: short
-  MOCK_NFTABLES: 1
   LETMEIN_DISABLE_SECCOMP: 1
 
 jobs:
@@ -21,11 +20,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update ${{ matrix.toolchain }}
-      - run: rustup default ${{ matrix.toolchain }}
-      - run: rustup component add clippy
-      - run: cargo build -q
-      - run: sh ./tests/run-tests.sh
+      - name: Install required system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nftables openssl
+          
+      - name: Setup Rust toolchain
+        run: |
+          rustup update ${{ matrix.toolchain }}
+          rustup default ${{ matrix.toolchain }}
+          rustup component add clippy
+          
+      - name: Capture initial nftables state
+        run: |
+          mkdir -p nft-logs
+          sudo nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
+          
+      - name: Build project
+        run: cargo build -q
+          
+      - name: Run tests
+        run: sudo -E sh ./tests/run-tests.sh
 
   client_only:
     name: Client only
@@ -49,88 +64,28 @@ jobs:
       - run: cargo test --package letmein-conf
       - run: cargo test --package letmein-proto
 
-  docker-tests:
-    name: Docker Integration Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Add execute permissions to scripts
-        run: chmod +x ./debug-test.sh ./tests/run-tests.sh ./build.sh
-
-      - name: Build and run tests in Docker
-        run: |
-          # Construire l'image Docker
-          docker build -t letmein-test -f Dockerfile.test .
-          
-          # Créer un répertoire pour les logs
-          mkdir -p nft-logs
-          
-          # Exécuter les tests en affichant les règles nftables avant et après
-          docker run --rm \
-            --privileged \
-            --cap-add=NET_ADMIN \
-            --cap-add=SYS_ADMIN \
-            --dns 8.8.8.8 \
-            --dns 1.1.1.1 \
-            --security-opt seccomp=unconfined \
-            -e LETMEIN_DISABLE_SECCOMP=1 \
-            -e RUST_BACKTRACE=0 \
-            -v "$(pwd):/app" \
-            --workdir /app \
-            letmein-test /bin/sh -c '
-              # Capture des règles nftables initiales
-              mkdir -p nft-logs
-              nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
-              
-              # Capture avant les tests
-              nft list ruleset > nft-logs/nft-state-before-tests-$(date +%Y%m%d-%H%M%S).log
-              
-              # Lancer les tests
-              echo "Lancement des tests..."
-              # Exécuter directement les fonctions de test pour éviter les problèmes d'arguments
-              cd ./tests
-              echo "Lancement du test knock..."
-              ./run-tests.sh knock
-              KNOCK_RESULT=$?
-              echo "Lancement du test close..."
-              ./run-tests.sh close
-              CLOSE_RESULT=$?
-              cd ..
-              # Si un des tests a échoué, on considère que tous les tests ont échoué
-              if [ $KNOCK_RESULT -ne 0 ] || [ $CLOSE_RESULT -ne 0 ]; then
-                TEST_RESULT=1
-              else
-                TEST_RESULT=0
-              fi
-              
-              # Capture après les tests
-              nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
-              
-              # Afficher un résumé
-              echo "===== LOGS NFTABLES GÉNÉRÉS =====" 
-              ls -la nft-logs/
-              
-              exit $TEST_RESULT
-            '
-
-      - name: Display nftables logs and debug info
+  # Le job docker-tests est supprimé car il est redondant avec le job server_and_client
+  # qui a été amélioré pour inclure toutes les fonctionnalités nécessaires
+  
+      - name: Capture final nftables state and display logs
         if: always()  # Always run for debugging purposes
         run: |
-          echo "==== NFTABLES DEBUG LOGS ===="
+          sudo nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
+          
+          echo "==== NFTABLES DEBUG LOGS ====" 
           echo "Displaying the initial, before-tests, and after-tests state logs:"
           
           echo "\n==== INITIAL STATE ===="
           cat nft-logs/nft-state-initial-*.log 2>/dev/null || echo "Initial state log not found"
           
-          echo "\n==== STATE BEFORE TESTS ===="
-          cat nft-logs/nft-state-before-tests-*.log 2>/dev/null || echo "Before-tests state log not found"
+          echo "\n==== CURRENT NFTABLES STATE ===="
+          sudo nft list ruleset
           
           echo "\n==== STATE AFTER TESTS ===="
           cat nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "After-tests state log not found"
           
-          echo "\n==== COMPARING BEFORE/AFTER TESTS (diff) ===="
-          diff nft-logs/nft-state-before-tests-*.log nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "Could not generate diff"
+          echo "\n==== COMPARING INITIAL/AFTER TESTS (diff) ===="
+          diff nft-logs/nft-state-initial-*.log nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "Could not generate diff"
           
           echo "\n==== LISTING ALL GENERATED LOG FILES ===="
           ls -la nft-logs/ 2>/dev/null || echo "No log files found"
@@ -201,8 +156,8 @@ jobs:
           mkdir -p nft-logs
           
           # Configuration des flags pour les tests
-          # Mode réel nftables (sans mock)
-          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0 MOCK_NFTABLES=0
+          # Mode réel nftables
+          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
           
           # Afficher la configuration nftables actuelle avant tout
           echo "=== Configuration nftables initiale ==="
@@ -271,8 +226,8 @@ jobs:
             echo "Code de retour de letmeinfwd verify avant test: $?"
           fi
           
-          # Lancement du test knock sans option non reconnue
-          echo "=== Running knock test with MOCK_NFTABLES=$MOCK_NFTABLES ==="
+          # Lancement du test knock
+          echo "=== Running knock test with real nftables ==="
           ./run-tests.sh knock
           KNOCK_RESULT=$?
           
@@ -319,12 +274,12 @@ jobs:
               NFT_JSON_OUTPUT=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" || echo "Échec avec code: $?"
             fi
             
-            echo "Tentative avec MOCK_NFTABLES=1 (contournement)"
+            echo "Tentative avec des options alternatives"
             # Vérifier si la version supporte --should-exist comme flag sans argument
             if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
-              MOCK_NFTABLES=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist || echo "Échec avec MOCK_NFTABLES=1: $?"
+              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist || echo "Échec avec --should-exist: $?"
             else
-              MOCK_NFTABLES=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" || echo "Échec avec MOCK_NFTABLES=1: $?"
+              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" || echo "Échec de vérification: $?"
             fi
             echo "Code de retour de letmeinfwd verify après test: $?"
           fi

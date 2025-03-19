@@ -119,11 +119,7 @@ verify_nft_rule_exists()
     
     info "--- Checking for the presence of nftables rule for $addr port $port/$proto..."
 
-    # Skip verification in MOCK_NFTABLES mode
-    if [ "$MOCK_NFTABLES" = "1" ]; then
-        info "MOCK_NFTABLES=1 detected, skipping nftables rule verification"
-        return 0
-    fi
+    # Toujours vérifier les règles nftables
 
     # 1. D'abord essayer avec letmeinfwd verify
     local verify_result=0
@@ -194,11 +190,7 @@ verify_nft_rule_missing()
     
     info "--- Checking for the ABSENCE of nftables rule for $addr port $port/$proto..."
 
-    # Skip verification in MOCK_NFTABLES mode
-    if [ "$MOCK_NFTABLES" = "1" ]; then
-        info "MOCK_NFTABLES=1 detected, skipping nftables rule verification"
-        return 0
-    fi
+    # Toujours vérifier les règles nftables
 
     # 1. D'abord essayer avec letmeinfwd verify
     local verify_result=0
@@ -337,18 +329,42 @@ run_test_cycle()
     info "Verifying nftables rules after $ip_version knock..."
     if $nftables_available; then
         echo "--- Toutes les règles nftables après knock $ip_version ($test_type) ---"
-        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        echo "=== Liste des règles nftables actuelles ==="
+        nft list ruleset
+        if [ $? -ne 0 ]; then
+            echo "ERREUR: Échec lors de la liste des règles nftables"
+        fi
         echo "--- Filtrage pour letmein ---"
-        nft list ruleset | grep -i letmein || echo "Aucune règle letmein n'a été trouvée"
+        echo "=== Recherche des règles letmein ==="
+        RULES_OUTPUT=$(nft list ruleset | grep -i letmein)
+        if [ -z "$RULES_OUTPUT" ]; then
+            echo "INFORMATION: Aucune règle letmein n'a été trouvée"
+        else
+            echo "$RULES_OUTPUT"
+        fi
         echo "--- Inspection détaillée de letmein-dynamic ---"
-        nft list chain inet filter letmein-dynamic || echo "Erreur: Impossible d'afficher la chaîne letmein-dynamic"
+        echo "=== Vérification de la chaîne letmein-dynamic ==="
+        nft list chain inet filter letmein-dynamic
+        if [ $? -ne 0 ]; then
+            echo "ERREUR: Impossible d'afficher la chaîne letmein-dynamic"
+        fi
         
         # Vérifier si la règle existe avec notre fonction de vérification
         info "Vérification formelle de la règle avec letmeinfwd verify"
         if [ "$test_type" = "tcp" ]; then
-            verify_nft_rule_exists "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+            if ! verify_nft_rule_exists "$conf" "$addr" 42 "tcp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) n'a pas été trouvée après knock"
+                echo "Détail: Aucune règle trouvée pour $addr port 42/tcp"
+            else
+                info "Règle TCP $test_type $ip_version vérifiée avec succès après knock"
+            fi
         else
-            verify_nft_rule_exists "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+            if ! verify_nft_rule_exists "$conf" "$addr" 42 "udp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) n'a pas été trouvée après knock"
+                echo "Détail: Aucune règle trouvée pour $addr port 42/udp"
+            else
+                info "Règle UDP $test_type $ip_version vérifiée avec succès après knock"
+            fi
         fi
     fi
     
@@ -371,18 +387,36 @@ run_test_cycle()
     if $nftables_available; then
         info "Verifying nftables rules after $ip_version close..."
         echo "--- Toutes les règles nftables après close $ip_version ---"
-        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        echo "=== Liste des règles nftables actuelles ==="
+        nft list ruleset
+        if [ $? -ne 0 ]; then
+            echo "ERREUR: Échec lors de la liste des règles nftables"
+        fi
         echo "--- Filtrage pour letmein après close ---"
         nft list ruleset | grep -i letmein || echo "Aucune règle letmein n'a été trouvée (attendu après close)"
         echo "--- Inspection détaillée de letmein-dynamic après close ---"
-        nft list chain inet filter letmein-dynamic || echo "Erreur: Impossible d'afficher la chaîne letmein-dynamic"
+        echo "=== Vérification de la chaîne letmein-dynamic ==="
+        nft list chain inet filter letmein-dynamic
+        if [ $? -ne 0 ]; then
+            echo "ERREUR: Impossible d'afficher la chaîne letmein-dynamic"
+        fi
         
         # Vérifier formellement l'absence de règle avec notre fonction de vérification
         info "Vérification formelle de l'absence de règle après close"
         if [ "$test_type" = "tcp" ]; then
-            verify_nft_rule_missing "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version est toujours présente après close"
+            if ! verify_nft_rule_missing "$conf" "$addr" 42 "tcp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) est toujours présente après close"
+                echo "Détail: Règle toujours présente pour $addr port 42/tcp"
+            else
+                info "Absence de règle TCP $test_type $ip_version vérifiée avec succès après close"
+            fi
         else
-            verify_nft_rule_missing "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version est toujours présente après close"
+            if ! verify_nft_rule_missing "$conf" "$addr" 42 "udp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) est toujours présente après close"
+                echo "Détail: Règle toujours présente pour $addr port 42/udp"
+            else
+                info "Absence de règle UDP $test_type $ip_version vérifiée avec succès après close"
+            fi
         fi
     fi
     
@@ -488,15 +522,33 @@ run_close_test_cycle()
     if $nftables_available && [ "$test_type" != "test" ]; then
         sleep 1  # Attendre que les règles soient bien appliquées
         echo "--- Règles nftables après knock $ip_version ---"
-        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        echo "=== Liste des règles nftables actuelles ==="
+        nft list ruleset
+        if [ $? -ne 0 ]; then
+            echo "ERREUR: Échec lors de la liste des règles nftables"
+        fi
         echo "--- Inspection détaillée de letmein-dynamic ---"
-        nft list chain inet filter letmein-dynamic || echo "Erreur: Impossible d'afficher la chaîne letmein-dynamic"
+        echo "=== Vérification de la chaîne letmein-dynamic ==="
+        nft list chain inet filter letmein-dynamic
+        if [ $? -ne 0 ]; then
+            echo "ERREUR: Impossible d'afficher la chaîne letmein-dynamic"
+        fi
         
         # Vérifier les règles avec notre fonction de vérification
         if [ "$test_type" = "tcp" ]; then
-            verify_nft_rule_exists "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+            if ! verify_nft_rule_exists "$conf" "$addr" 42 "tcp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) n'a pas été trouvée après knock"
+                echo "Détail: Aucune règle trouvée pour $addr port 42/tcp"
+            else
+                info "Règle TCP $test_type $ip_version vérifiée avec succès après knock"
+            fi
         else
-            verify_nft_rule_exists "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version n'a pas été trouvée après knock"
+            if ! verify_nft_rule_exists "$conf" "$addr" 42 "udp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) n'a pas été trouvée après knock"
+                echo "Détail: Aucune règle trouvée pour $addr port 42/udp"
+            else
+                info "Règle UDP $test_type $ip_version vérifiée avec succès après knock"
+            fi
         fi
     fi
 
@@ -516,13 +568,27 @@ run_close_test_cycle()
     if $nftables_available && [ "$test_type" != "test" ]; then
         sleep 1  # Attendre que les règles soient bien supprimées
         echo "--- Règles nftables après close $ip_version ---"
-        nft list ruleset || echo "Erreur lors de la liste des règles nftables"
+        echo "=== Liste des règles nftables actuelles ==="
+        nft list ruleset
+        if [ $? -ne 0 ]; then
+            echo "ERREUR: Échec lors de la liste des règles nftables"
+        fi
         
         # Vérifier l'absence de règle
         if [ "$test_type" = "tcp" ]; then
-            verify_nft_rule_missing "$conf" "$addr" 42 "tcp" || warning "La règle $test_type $ip_version est toujours présente après close"
+            if ! verify_nft_rule_missing "$conf" "$addr" 42 "tcp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) est toujours présente après close"
+                echo "Détail: Règle toujours présente pour $addr port 42/tcp"
+            else
+                info "Absence de règle TCP $test_type $ip_version vérifiée avec succès après close"
+            fi
         else
-            verify_nft_rule_missing "$conf" "$addr" 42 "udp" || warning "La règle $test_type $ip_version est toujours présente après close"
+            if ! verify_nft_rule_missing "$conf" "$addr" 42 "udp"; then
+                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) est toujours présente après close"
+                echo "Détail: Règle toujours présente pour $addr port 42/udp"
+            else
+                info "Absence de règle UDP $test_type $ip_version vérifiée avec succès après close"
+            fi
         fi
     fi
 
@@ -603,7 +669,13 @@ initialize_nftables()
     
     info "Initialisation de nftables pour les tests..."
     if [ -x "$testdir/setup-nftables.sh" ]; then
-        "$testdir/setup-nftables.sh" || warning "Erreur lors de l'initialisation de nftables"
+        "$testdir/setup-nftables.sh"
+        if [ $? -ne 0 ]; then
+            warning "ERREUR: Échec lors de l'initialisation de nftables"
+            echo "La commande setup-nftables.sh a retourné le code d'erreur $?"
+        else
+            info "Initialisation de nftables réussie"
+        fi
     else
         warning "Le script setup-nftables.sh n'existe pas ou n'est pas exécutable"
     fi
@@ -619,13 +691,27 @@ initialize_config()
     info "Initialisation du fichier de configuration pour les tests..."
     
     # Créer le répertoire si nécessaire
-    mkdir -p "$config_dir" || warning "Impossible de créer le répertoire de configuration $config_dir"
+    echo "Création du répertoire de configuration: $config_dir"
+    mkdir -p "$config_dir"
+    if [ $? -ne 0 ]; then
+        warning "ERREUR: Impossible de créer le répertoire de configuration $config_dir"
+        echo "Détail: La commande mkdir a échoué avec le code d'erreur $?"
+    else
+        info "Répertoire de configuration créé avec succès"
+    fi
     
     # Générer une clé pour l'utilisateur de test si nécessaire
     if ! grep -q "$test_user" "$config_file" 2>/dev/null; then
         # Générer une clé aléatoire pour l'utilisateur
         local key="$(openssl rand -hex 16)"
-        echo "$test_user:$key" >> "$config_file" || warning "Impossible d'ajouter la clé au fichier $config_file"
+        echo "Ajout de la clé pour l'utilisateur $test_user au fichier $config_file"
+        echo "$test_user:$key" >> "$config_file"
+        if [ $? -ne 0 ]; then
+            warning "ERREUR: Impossible d'ajouter la clé au fichier $config_file"
+            echo "Détail: La commande echo a échoué avec le code d'erreur $?"
+        else
+            info "Clé ajoutée avec succès au fichier de configuration"
+        fi
         info "Clé ajoutée pour l'utilisateur $test_user dans $config_file"
     else
         info "La clé pour l'utilisateur $test_user existe déjà dans $config_file"
@@ -658,38 +744,23 @@ trap cleanup EXIT
 
 info "Temporary directory is: $tmpdir"
 
-# Vérifier si on doit utiliser les stubs nftables (MOCK_NFTABLES=1)
-if [ "$MOCK_NFTABLES" = "1" ]; then
-    info "Mode MOCK_NFTABLES activé, utilisation des stubs nftables"
-    export MOCK_NFTABLES=1
-    
-    # Vérifier si nftables est disponible mais en mode stub
-    if check_nftables; then
-        nftables_available=true
-        info "Les vérifications de règles nftables seront effectuées (mode stub)"
-    else
-        nftables_available=false
-        warning "Les vérifications de règles nftables seront désactivées (mode stub non fonctionnel)"
-    fi
+# Utilisation systématique des vraies nftables
+info "Mode réel nftables activé"
+
+# Vérifier si nftables est disponible et opérationnel
+if check_nftables; then
+    nftables_available=true
+    info "Les vérifications de règles nftables seront effectuées"
 else
-    info "Mode réel nftables activé (pas de MOCK_NFTABLES)"
-    unset MOCK_NFTABLES
+    nftables_available=false
+    warning "Les vérifications de règles nftables seront désactivées (nftables non disponible)"
     
-    # Vérifier si le vrai nftables est disponible et opérationnel
-    if check_nftables; then
-        nftables_available=true
-        info "Les vérifications de règles nftables réelles seront effectuées"
-        
-        # Initialiser nftables avec notre script
-        initialize_nftables
-        
-        # Initialiser le fichier de configuration
-        initialize_config
-    else
-        nftables_available=false
-        warning "Les vérifications de règles nftables réelles seront désactivées"
-    fi
+    # Initialiser nftables avec notre script (tentative de correction)
+    initialize_nftables
 fi
+
+# Initialiser le fichier de configuration
+initialize_config
 
 build_project
 cargo_clippy
