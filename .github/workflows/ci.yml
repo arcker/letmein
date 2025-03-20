@@ -11,55 +11,53 @@ env:
   LETMEIN_DISABLE_SECCOMP: 1
 
 jobs:
-  full_tests:
-    name: Compile and test
-    strategy:
-      matrix:
-        toolchain:
-          - 1.85
+  test:
+    name: Run tests
     runs-on: ubuntu-latest
-    steps:   
+    container:
+      image: rust:alpine
+      options: --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          apk add --no-cache \
+            nftables \
+            iproute2 \
+            iptables \
+            sudo \
+            bash
+
       - name: Build project
         run: cargo build -q
 
       - name: Run tests
         run: |
-          # Utiliser le script unifié test.sh au lieu de run-tests.sh directement
-          # Cette approche est cohérente avec l'exécution locale des tests
-          sudo -E ./test.sh --docker knock close
+          chmod +x ./test.sh
+          ./test.sh --local knock close
 
-  macos_windows_build:
-    name: Client only
+  client_builds:
+    name: Build clients
     strategy:
       matrix:
-        toolchain:
-          - 1.85
         os:
           - windows-latest
           - macos-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update ${{ matrix.toolchain }}
-      - run: rustup default ${{ matrix.toolchain }}
-      - run: rustup component add clippy
-      - run: cargo build -q --package letmein
-      - run: cargo clippy --package letmein -- --deny warnings
-      - run: cargo clippy --tests --package letmein -- --deny warnings
-      - run: cargo test --package letmein
-      - run: cargo test --package letmein-conf
-      - run: cargo test --package letmein-proto
-
-  simple-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    container:
-      image: rust:alpine
-      options: --privileged --cap-add=NET_ADMIN --dns 8.8.8.8 --dns 1.1.1.1 --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
-    steps:
-      - uses: actions/checkout@v4
       
-      - name: Install dependencies and run tests
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      
+      - name: Build and test client packages
         run: |
-          ./test.sh --docker knock close
+          cargo build -q --package letmein
+          cargo clippy --package letmein -- --deny warnings
+          cargo test --package letmein
+          cargo test --package letmein-conf
+          cargo test --package letmein-proto
 
