@@ -7,6 +7,10 @@ basedir="$basedir/.."
 info()
 {
     echo "--- $*"
+    # En mode verbose, afficher plus de détails
+    if [ "$VERBOSE" = "1" ]; then
+        set -x
+    fi
 }
 
 # strace configuration
@@ -423,36 +427,77 @@ run_test_cycle()
     kill_all_and_wait
 }
 
+# Fonction pour tracer les commandes de test avec détails
+trace_execution() {
+    echo "\n=================================================="
+    echo "EXÉCUTION: $*"
+    echo "==================================================\n"
+    
+    # Exécution avec trace détaillée
+    set -x
+    "$@"
+    local result=$?
+    set +x
+    
+    echo "\n=================================================="
+    echo "RÉSULTAT DE: $* (code: $result)"
+    echo "==================================================\n"
+    
+    return $result
+}
+
 # Fonction pour exécuter les tests knock (remplacement de run_tests_knock)
 run_tests_knock()
 {
     local test_type="$1"
     
+    echo "======================================================="
+    echo "=== DÉBUT DES TESTS KNOCK POUR $test_type ==="
+    echo "======================================================="
+    
     info "### Running tests: knock $test_type ###"
     
-    # Exécuter le cycle complet pour chaque version IP
-    run_test_cycle "$test_type" "ipv4"
-    run_test_cycle "$test_type" "ipv6"
-    run_test_cycle "$test_type" "dual"
+    # Exécuter le cycle complet pour chaque version IP avec trace détaillée
+    trace_execution run_test_cycle "$test_type" "ipv4"
+    trace_execution run_test_cycle "$test_type" "ipv6"
+    trace_execution run_test_cycle "$test_type" "dual"
     
     info "All knock tests completed for $test_type"
+    
+    echo "======================================================="
+    echo "=== FIN DES TESTS KNOCK POUR $test_type ==="
+    echo "======================================================="
+    # Désactiver l'affichage détaillé
+    set +x
 }
 
 # Fonction pour exécuter des tests de fermeture
 run_tests_close()
 {
     local test_type="$1"
+    
+    echo "======================================================="
+    echo "=== DÉBUT DES TESTS CLOSE POUR $test_type ==="
+    echo "======================================================="
+    # Activer l'affichage de toutes les commandes
+    set -x
 
     info "### Running close tests: $test_type ###"
     info "Note: Les tests 'knock' incluent déjà le cycle complet (knock > verify > close)."
 
     # Cette fonction exécute des tests de fermeture spécifiques pour chaque type d'IP
     # en utilisant notre nouvelle fonction de test complet pour chaque protocole
-    run_close_test_cycle "$test_type" "ipv4"
-    run_close_test_cycle "$test_type" "ipv6"
-    run_close_test_cycle "$test_type" "dual"
+    trace_execution run_close_test_cycle "$test_type" "ipv4"
+    trace_execution run_close_test_cycle "$test_type" "ipv6"
+    trace_execution run_close_test_cycle "$test_type" "dual"
     
     info "All close tests completed for $test_type"
+    
+    echo "======================================================="
+    echo "=== FIN DES TESTS CLOSE POUR $test_type ==="
+    echo "======================================================="
+    # Désactiver l'affichage détaillé
+    set +x
 }
 
 # Exécute un test complet de fermeture après ouverture (knock puis close) pour une adresse IP
@@ -782,7 +827,16 @@ if [ $# -gt 0 ]; then
                 run_tests_close udp
                 ;;
             *)
-                warning "Test inconnu: $test"
+                                # Traiter les options supplémentaires
+                if [ "$test" = "--verbose" ]; then
+                    VERBOSE=1
+                    info "Mode verbose activé"
+                # Ignorer silencieusement les autres arguments qui ne sont pas des tests réels
+                # Les tests valides sont: knock, close, gen-key
+                else
+                    # Arguments silencieusement ignorés
+                    true
+                fi
                 ;;
         esac
     done

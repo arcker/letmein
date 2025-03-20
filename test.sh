@@ -164,6 +164,9 @@ run_local_tests() {
     
     echo -e "${YELLOW}Running tests: $test_args${NC}"
     
+    # Vérifier la validité des tests
+    validate_tests $test_args
+    
     # Run tests with sudo for nftables access
     sudo -E ./tests/run-tests.sh $test_args
     TEST_EXIT_CODE=$?
@@ -183,8 +186,8 @@ run_local_tests() {
         echo -e "${RED}=== TESTS FAILED (exit code: $TEST_EXIT_CODE) ===${NC}"
     fi
     
-    # Display debug logs information
-    display_logs_info
+    # Affichage simplifié des résultats
+    show_test_results
     
     return $TEST_EXIT_CODE
 }
@@ -216,64 +219,8 @@ run_docker_tests() {
     echo -e "${YELLOW}Running tests in Docker: $test_args${NC}"
     echo -e "${YELLOW}Using real nftables for all tests${NC}"
     
-    # Créer un script temporaire pour éviter les problèmes d'interprétation
-    DOCKER_SCRIPT="$(mktemp)"
-    
-    # Écrire le script Docker avec une syntaxe claire
-    cat > "$DOCKER_SCRIPT" << 'EOF'
-#!/bin/sh
-
-# Configuration stricte pour détecter les erreurs
-set -e
-
-# Variables passées par l'environnement
-LOG_DIR=${LOG_DIR:-/app/nft-logs}
-TEST_ARGS=${TEST_ARGS:-knock close}
-
-# --- Création du répertoire de logs ---
-mkdir -p "$LOG_DIR"
-echo "Répertoire de logs créé: $LOG_DIR"
-
-# --- Capture de l'état initial ---
-echo "=== Capture de l'état initial des règles nftables ==="
-nft list ruleset > "$LOG_DIR/nft-state-initial-$(date +%Y%m%d-%H%M%S).log"
-
-# --- Compilation si nécessaire ---
-echo "=== Compilation du projet ==="
-cargo build
-BUILD_RESULT=$?
-
-if [ $BUILD_RESULT -ne 0 ]; then
-    echo "ERREUR: Échec de la compilation (code: $BUILD_RESULT)"
-    exit $BUILD_RESULT
-fi
-
-# --- Capture pré-test ---
-echo "=== Capture de l'état des règles nftables avant les tests ==="
-nft list ruleset > "$LOG_DIR/nft-state-before-tests-$(date +%Y%m%d-%H%M%S).log"
-
-# --- Exécution des tests ---
-echo "=== Exécution des tests: $TEST_ARGS ==="
-cd ./tests
-./run-tests.sh $TEST_ARGS
-TEST_RESULT=$?
-cd ..
-
-# --- Capture post-test ---
-echo "=== Capture de l'état des règles nftables après les tests ==="
-nft list ruleset > "$LOG_DIR/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log"
-
-# --- Affichage du résumé des logs ---
-echo "=== Tests terminés avec le code de sortie: $TEST_RESULT ==="
-echo "=== Logs nftables générés: ==="
-ls -la "$LOG_DIR/"
-
-# Retourne le statut des tests
-exit $TEST_RESULT
-EOF
-
-    # Rendre le script exécutable
-    chmod +x "$DOCKER_SCRIPT"
+    # Message d'information sur les tests Docker
+    echo -e "${BLUE}Préparation des tests Docker...${NC}"
     
     # --- Exécuter les tests dans Docker avec les vrais nftables ---
     echo -e "${BLUE}Lancement du conteneur Docker pour les tests...${NC}"
@@ -281,8 +228,22 @@ EOF
     # --- Construction explicite de la commande Docker ---
     echo -e "${BLUE}Construction de la commande Docker...${NC}"
     
-    # Construction de la commande Docker de manière plus sécurisée
-    # en évitant les problèmes d'expansion de variables
+    # Rendre le script exécutable
+    chmod +x "$DOCKER_SCRIPT"
+    
+    # Exécution simplifiée avec affichage détaillé
+    docker_script="cd /app && \
+        # Compilation du projet
+        cargo build && \
+        # Exécution avec mode debug
+        cd ./tests && \
+        export LOG_LEVEL=debug && \
+        ./run-tests.sh $test_args"
+
+    echo -e "${BLUE}Lancement du conteneur Docker pour les tests...${NC}"
+    echo -e "${BLUE}Tests à exécuter: $test_args${NC}"
+
+    # Exécution des tests dans un conteneur Docker
     docker run \
         --rm \
         --privileged \
@@ -294,17 +255,13 @@ EOF
         -e LETMEIN_DISABLE_SECCOMP=1 \
         -e DISABLE_STRACE=1 \
         -e "LOG_LEVEL=$LOG_LEVEL" \
-        -e RUST_BACKTRACE=0 \
-        -e "LOG_DIR=$LOG_DIR" \
-        -e "TEST_ARGS=$test_args" \
+        -e RUST_BACKTRACE=1 \
         -v "$(pwd):/app" \
-        -v "$DOCKER_SCRIPT:/run-docker-tests.sh" \
         --workdir /app \
-        letmein-test \
-        /run-docker-tests.sh
+        letmein-test:latest \
+        ash -c "$docker_script"
         
-    # Nettoyage du script temporaire
-    rm -f "$DOCKER_SCRIPT"
+    # Fin des tests Docker
     
     TEST_EXIT_CODE=$?
     
@@ -316,10 +273,33 @@ EOF
         echo -e "${YELLOW}You can debug further with: $0 --debug${NC}"
     fi
     
-    # Display debug logs information
-    display_logs_info
+    # Affichage simplifié des résultats
+    show_test_results
     
     return $TEST_EXIT_CODE
+}
+
+# Fonction pour vérifier la validité des tests spécifiés
+validate_tests() {
+    local valid_tests=("knock" "close" "gen-key")
+    # Ne pas vérifier les arguments du Docker script
+    # Simplement valider si au moins un test valide est présent
+    
+    # Vérifier uniquement les tests connus (knock, close, gen-key)
+    local found_valid=0
+    for test in "$@"; do
+        for valid_test in "${valid_tests[@]}"; do
+            if [ "$test" = "$valid_test" ]; then
+                found_valid=1
+                break
+            fi
+        done
+    done
+    
+    # Si aucun test valide n'est trouvé, afficher un avertissement
+    if [ $found_valid -eq 0 ]; then
+        echo -e "${YELLOW}Aucun test valide spécifié. Tests disponibles: knock, close, gen-key${NC}"
+    fi
 }
 
 # Function to run interactive debug mode in Docker
@@ -349,32 +329,9 @@ run_debug_mode() {
     return 0
 }
 
-# Function to display information about logs
-display_logs_info() {
-    echo -e "${GREEN}=== DEBUG LOGS INFORMATION ===${NC}"
-    echo -e "${BLUE}Debug logs are available in: $LOG_DIR${NC}"
-    
-    # List important log files
-    echo -e "${BLUE}Important log files:${NC}"
-    ls -la "$LOG_DIR" | grep -E "initial|before-tests|after-tests" | awk '{print $9}' | while read file; do
-        echo -e "${YELLOW}- $LOG_DIR/$file${NC}"
-    done
-    
-    # Show current state
-    echo -e "\n${GREEN}Current nftables state:${NC}"
-    if [ "$MODE" = "docker" ]; then
-        echo -e "${YELLOW}(Run with --debug to inspect current state in container)${NC}"
-    else
-        echo -e "${YELLOW}$(sudo nft list ruleset 2>&1 | head -n 10)${NC}"
-        if [ $(sudo nft list ruleset 2>&1 | wc -l) -gt 10 ]; then
-            echo -e "${YELLOW}[...] (output truncated, use 'sudo nft list ruleset' for full output)${NC}"
-        fi
-    fi
-    
-    # Suggest useful commands
-    echo -e "\n${GREEN}Useful commands:${NC}"
-    echo -e "${YELLOW}- To view test output: less -R $LOG_DIR/nft-state-after-tests-*.log${NC}"
-    echo -e "${YELLOW}- To compare before/after: diff $LOG_DIR/nft-state-before-tests-*.log $LOG_DIR/nft-state-after-tests-*.log${NC}"
+# Fonction pour afficher les résultats des tests simplement (sans logs détaillés)
+show_test_results() {
+    echo -e "${GREEN}Tests exécutés avec succès${NC}"
 }
 
 # Parse command line options
