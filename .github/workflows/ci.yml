@@ -14,22 +14,32 @@ jobs:
   test:
     name: Run tests
     runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+      options: --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
       
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apk add --no-cache \
             nftables \
             iproute2 \
             iptables \
-            openssl
+            sudo \
+            bash \
+            musl-dev \
+            gcc \
+            make \
+            linux-headers \
+            openssl \
+            openssl-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.81
         with:
           components: clippy
+          targets: x86_64-unknown-linux-musl
 
       - name: Build project
         run: cargo build -q
@@ -37,7 +47,7 @@ jobs:
       - name: Run tests
         run: |
           chmod +x ./test.sh
-          ./test.sh --docker knock close
+          ./test.sh --local knock close
 
   client_builds:
     name: Build clients
