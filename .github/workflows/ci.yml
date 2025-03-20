@@ -27,7 +27,11 @@ jobs:
             iproute2 \
             iptables \
             sudo \
-            bash
+            bash \
+            musl-dev \
+            gcc \
+            make \
+            linux-headers
 
       - name: Build project
         run: cargo build -q
