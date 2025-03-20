@@ -15,9 +15,22 @@ jobs:
   test:
     name: Run tests
     runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
     steps:
       - uses: actions/checkout@v4
-    
+      
+      - name: Install dependencies
+        run: |
+          apk add --no-cache \
+            nftables \
+            iproute2 \
+            build-base \
+            curl \
+            git \
+            libcap \
+            sudo
+
       - name: Run tests
         run: |
           chmod +x ./test.sh
