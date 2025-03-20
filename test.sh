@@ -231,21 +231,19 @@ run_docker_tests() {
     # Rendre le script exécutable
     chmod +x "$DOCKER_SCRIPT"
     
-    # Exécution simplifiée avec affichage détaillé
-    docker_script="cd /app && \
-        # Compilation du projet
-        cargo build && \
-        # Exécution avec mode debug
-        cd ./tests && \
-        export LOG_LEVEL=debug && \
-        ./run-tests.sh $test_args"
+    # Utiliser notre script dédié pour le test Docker avec affichage complet
+    echo -e "${BLUE}Utilisation du script docker-test-script.sh pour une sortie détaillée${NC}"
 
     echo -e "${BLUE}Lancement du conteneur Docker pour les tests...${NC}"
     echo -e "${BLUE}Tests à exécuter: $test_args${NC}"
 
-    # Exécution des tests dans un conteneur Docker
+    # Exécution des tests dans un conteneur Docker avec notre script dédié
+    echo -e "${BLUE}Exécution des tests avec affichage détaillé et capture des sorties...${NC}"
+    
+    # Commande Docker avec option -t pour s'assurer que les sorties sont préservées
     docker run \
         --rm \
+        -t \
         --privileged \
         --cap-add=NET_ADMIN \
         --cap-add=SYS_ADMIN \
@@ -254,12 +252,13 @@ run_docker_tests() {
         --security-opt seccomp=unconfined \
         -e LETMEIN_DISABLE_SECCOMP=1 \
         -e DISABLE_STRACE=1 \
-        -e "LOG_LEVEL=$LOG_LEVEL" \
-        -e RUST_BACKTRACE=1 \
+        -e "LOG_LEVEL=debug" \
+        -e RUST_LOG=debug \
+        -e RUST_BACKTRACE=full \
         -v "$(pwd):/app" \
         --workdir /app \
         letmein-test:latest \
-        ash -c "$docker_script"
+        ./docker-test-script.sh $test_args
         
     # Fin des tests Docker
     

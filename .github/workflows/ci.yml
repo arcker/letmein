@@ -11,41 +11,24 @@ env:
   LETMEIN_DISABLE_SECCOMP: 1
 
 jobs:
-  server_and_client:
-    name: Server and client
+  full_tests:
+    name: Compile and test
     strategy:
       matrix:
         toolchain:
           - 1.85
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install required system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y nftables openssl
-          
-      - name: Setup Rust toolchain
-        run: |
-          rustup update ${{ matrix.toolchain }}
-          rustup default ${{ matrix.toolchain }}
-          rustup component add clippy
-          
-      - name: Capture initial nftables state
-        run: |
-          mkdir -p nft-logs
-          sudo nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
-          
+    steps:   
       - name: Build project
         run: cargo build -q
-          
+
       - name: Run tests
         run: |
           # Utiliser le script unifié test.sh au lieu de run-tests.sh directement
           # Cette approche est cohérente avec l'exécution locale des tests
-          sudo -E ./test.sh --local
+          sudo -E ./test.sh --docker knock close
 
-  client_only:
+  macos_windows_build:
     name: Client only
     strategy:
       matrix:
@@ -67,34 +50,8 @@ jobs:
       - run: cargo test --package letmein-conf
       - run: cargo test --package letmein-proto
 
-  # Le job docker-tests est supprimé car il est redondant avec le job server_and_client
-  # qui a été amélioré pour inclure toutes les fonctionnalités nécessaires
-  
-      - name: Capture final nftables state and display logs
-        if: always()  # Always run for debugging purposes
-        run: |
-          sudo nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
-          
-          echo "==== NFTABLES DEBUG LOGS ====" 
-          echo "Displaying the initial, before-tests, and after-tests state logs:"
-          
-          echo "\n==== INITIAL STATE ===="
-          cat nft-logs/nft-state-initial-*.log 2>/dev/null || echo "Initial state log not found"
-          
-          echo "\n==== CURRENT NFTABLES STATE ===="
-          sudo nft list ruleset
-          
-          echo "\n==== STATE AFTER TESTS ===="
-          cat nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "After-tests state log not found"
-          
-          echo "\n==== COMPARING INITIAL/AFTER TESTS (diff) ===="
-          diff nft-logs/nft-state-initial-*.log nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "Could not generate diff"
-          
-          echo "\n==== LISTING ALL GENERATED LOG FILES ===="
-          ls -la nft-logs/ 2>/dev/null || echo "No log files found"
-          
   simple-tests:
-    name: Simple Integration Tests (Real nftables mode)
+    name: Integration Tests
     runs-on: ubuntu-latest
     container:
       image: rust:alpine
@@ -104,236 +61,5 @@ jobs:
       
       - name: Install dependencies and run tests
         run: |
-          # Installer les dépendances nécessaires
-          apk add --no-cache \
-            build-base \
-            curl \
-            git \
-            nftables \
-            iptables \
-            sudo \
-            libcap \
-            strace \
-            procps \
-            shadow
-          
-          # Préparer l'environnement
-          mkdir -p /etc/nftables /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
-          chmod 777 /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
-          
-          # Configuration DNS explicite pour résoudre les problèmes de résolution
-          echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
-          
-          # Configurer nftables de base
-          echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf
-          echo 'flush ruleset' >> /etc/nftables/basic.conf
-          echo 'table inet filter {' >> /etc/nftables/basic.conf
-          echo '  chain input {' >> /etc/nftables/basic.conf
-          echo '    type filter hook input priority 0; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain forward {' >> /etc/nftables/basic.conf
-          echo '    type filter hook forward priority 0; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain output {' >> /etc/nftables/basic.conf
-          echo '    type filter hook output priority 0; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain LETMEIN-INPUT {' >> /etc/nftables/basic.conf
-          echo '    type filter hook input priority srcnat; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '  chain LETMEIN-OUTPUT {' >> /etc/nftables/basic.conf
-          echo '    type filter hook output priority 100; policy accept;' >> /etc/nftables/basic.conf
-          echo '  }' >> /etc/nftables/basic.conf
-          echo '}' >> /etc/nftables/basic.conf
-          chmod +x /etc/nftables/basic.conf
-          
-          # Initialiser nftables
-          nft -f /etc/nftables/basic.conf
-          
-          # Add clippy
-          rustup component add clippy
+          ./test.sh --docker knock close
 
-          # Donner les permissions d'exécution aux scripts
-          chmod +x ./debug-test.sh ./tests/run-tests.sh ./build.sh
-          
-          # Créer le répertoire pour les logs
-          mkdir -p nft-logs
-          
-          # Configuration des flags pour les tests
-          # Mode réel nftables
-          export LETMEIN_DISABLE_SECCOMP=1 RUST_BACKTRACE=0
-          
-          # Afficher la configuration nftables actuelle avant tout
-          echo "=== Configuration nftables initiale ==="
-          nft list ruleset
-          
-          echo "=== Debugging: s'assurer que le véritable nft est accessible ==="
-          which nft
-          ls -la $(which nft)
-          id
-          
-          echo "=== Debugging: vérifier les droits utilisateur et capabilities ==="
-          mkdir -p "$HOME/.config/letmein"
-          chmod 755 "$HOME/.config/letmein"
-          mkdir -p /var/run/letmein /var/run/letmeind /var/run/letmeinfwd
-          chmod 777 /var/run/letmein /var/run/letmeind /var/run/letmeinfwd
-          
-          # Capture des règles nftables initiales
-          nft list ruleset > nft-logs/nft-state-initial-$(date +%Y%m%d-%H%M%S).log
-          
-          # Capture avant les tests
-          nft list ruleset > nft-logs/nft-state-before-tests-$(date +%Y%m%d-%H%M%S).log
-          
-          # Utiliser le script unifié test.sh comme point d'entrée des tests
-          echo "Lancement des tests unifiés via test.sh..."
-          # Mettre à jour l'environnement pour l'exécution des tests avec logs détaillés
-          export PATH="$(pwd)/target/debug:$PATH"
-          export RUST_LOG=letmeinfwd=trace,letmeind=trace,nftables=debug
-          
-          # Ne pas créer de fichier de configuration global car les tests utilisent leur propre configuration
-          
-          # Inspecter le chemin de l'exécutable letmeinfwd
-          echo "=== letmeinfwd path ==="
-          which letmeinfwd || echo "letmeinfwd not found in PATH"
-          
-          # Utiliser test.sh en mode local pour exécuter tous les tests
-          echo "=== État nftables avant les tests ==="
-          nft list ruleset
-          
-          echo "Lancement des tests via le script unifié test.sh..."
-          
-          # Exécuter explicitement letmeinfwd verify juste avant le test
-          # Exécuter le script unifié test.sh pour lancer tous les tests
-          cd ..
-          chmod +x ./test.sh
-          
-          # Capture l'état initial de nftables avant les tests
-          mkdir -p nft-logs
-          nft list ruleset > nft-logs/nft-state-before-test-sh-$(date +%Y%m%d-%H%M%S).log
-            if "$(pwd)/../target/debug/letmeinfwd" --help | grep -q -- "--should-exist"; then
-              SUPPORTS_SHOULD_EXIST=1
-              echo "Version avec --should-exist détectée"
-            else
-              echo "Version sans --should-exist détectée"
-            fi
-            
-            # Exécuter avec un fichier de configuration disponible
-            # Utiliser tcp.conf puisque c'est disponible et qu'on teste une règle TCP
-            CONF_PATH="$(pwd)/conf/tcp.conf"
-            echo "Utilisation du fichier de configuration: $CONF_PATH"
-            ls -la "$CONF_PATH" || echo "Fichier non trouvé"
-            
-            if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
-              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist false
-            else
-              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp"
-            fi
-            echo "Code de retour de letmeinfwd verify avant test: $?"
-          fi
-          
-          # Exécuter les tests avec le script unifié
-          echo "=== Exécution des tests unifiés avec test.sh ==="
-          ./test.sh --verbose knock close
-          TEST_RESULT=$?
-          
-          # Inspecter manuellement les règles nftables après les tests
-          echo "=== Inspecting nftables rules after unified tests ==="
-          echo "Toutes les règles nftables:"
-          nft list ruleset
-          echo "Filtrage pour letmein:"
-          nft list ruleset | grep -i letmein || echo "Aucune règle avec 'letmein' trouvée"
-          
-          # Vérifier le contenu du répertoire de test pour comprendre la structure
-          echo "=== Contenu du répertoire de test ==="
-          find "$(pwd)" -type f -name "*.conf" | sort
-          ls -la "$(pwd)/conf" || echo "Répertoire conf non trouvé"
-          
-          # Exécuter explicitement letmeinfwd verify après le test knock
-          if [ -x "$(pwd)/../target/debug/letmeinfwd" ]; then
-            echo "=== Executing letmeinfwd verify manually after test ==="
-            
-            # Définir variable d'environnement pour le débogage de nftables
-            export RUST_LOG=nftables=trace,letmeinfwd=trace
-            
-            # Vérifier si --should-exist est supporté
-            SUPPORTS_SHOULD_EXIST=0
-            if "$(pwd)/../target/debug/letmeinfwd" --help | grep -q -- "--should-exist"; then
-              SUPPORTS_SHOULD_EXIST=1
-              echo "Version avec --should-exist détectée"
-            else
-              echo "Version sans --should-exist détectée"
-            fi
-            
-            # Utiliser un fichier de configuration disponible
-            # Utiliser tcp.conf puisque c'est disponible et qu'on teste une règle TCP
-            CONF_PATH="$(pwd)/conf/tcp.conf"
-            echo "Utilisation du fichier de configuration: $CONF_PATH"
-            
-            # Exécuter avec ou sans --should-exist selon la version
-            # Tester différentes approches pour contourner l'erreur JSON
-            echo "Tentative avec NFT_JSON_OUTPUT=1"
-            if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
-              NFT_JSON_OUTPUT=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist || echo "Échec avec code: $?"
-            else
-              # Pour la vérification d'existence, on s'attend à un code de retour 0 si la règle existe
-              NFT_JSON_OUTPUT=1 "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" || echo "Échec avec code: $?"
-            fi
-            
-            echo "Tentative avec des options alternatives"
-            # Vérifier si la version supporte --should-exist comme flag sans argument
-            if [ "$SUPPORTS_SHOULD_EXIST" -eq "1" ]; then
-              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" --should-exist || echo "Échec avec --should-exist: $?"
-            else
-              "$(pwd)/../target/debug/letmeinfwd" --config "$CONF_PATH" verify --address "::1" --port 42 --protocol "tcp" || echo "Échec de vérification: $?"
-            fi
-            echo "Code de retour de letmeinfwd verify après test: $?"
-          fi
-          
-          echo "=== État nftables après test knock ==="
-          nft list ruleset
-          
-          # Capture finale de l'état nftables
-          echo "=== Capture finale de l'état nftables ==="
-          nft list ruleset > nft-logs/nft-state-after-all-tests-$(date +%Y%m%d-%H%M%S).log
-          
-          # Déjà déterminé par test.sh
-          echo "=== Résultat des tests unifiés: $TEST_RESULT ==="
-          
-          # Capture après les tests
-          nft list ruleset > nft-logs/nft-state-after-tests-$(date +%Y%m%d-%H%M%S).log
-          
-          # Afficher un résumé
-          echo "===== LOGS NFTABLES GÉNÉRÉS ====="
-          ls -la nft-logs/
-          
-          exit $TEST_RESULT
-      
-      - name: Display nftables logs and debug info
-        if: always()  # Always run for debugging purposes
-        run: |
-          echo "==== NFTABLES DEBUG LOGS ===="
-          echo "Displaying the initial, before-tests, and after-tests state logs:"
-          
-          echo "\n==== INITIAL STATE ===="
-          cat nft-logs/nft-state-initial-*.log 2>/dev/null || echo "Initial state log not found"
-          
-          echo "\n==== STATE BEFORE TESTS ===="
-          cat nft-logs/nft-state-before-tests-*.log 2>/dev/null || echo "Before-tests state log not found"
-          
-          echo "\n==== STATE AFTER TESTS ===="
-          cat nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "After-tests state log not found"
-          
-          echo "\n==== COMPARING BEFORE/AFTER TESTS (diff) ===="
-          diff nft-logs/nft-state-before-tests-*.log nft-logs/nft-state-after-tests-*.log 2>/dev/null || echo "Could not generate diff"
-          
-          echo "\n==== LISTING ALL GENERATED LOG FILES ===="
-          ls -la nft-logs/ 2>/dev/null || echo "No log files found"
-      
-      # - name: Archive nftables logs (always)
-      #   if: always()  # Run even if the previous step failed
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: nftables-logs
-      #     path: nft-logs/
-      #     retention-days: 1
-
-# vim: ts=2 sw=2 expandtab
