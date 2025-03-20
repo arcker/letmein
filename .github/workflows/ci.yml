@@ -25,24 +25,29 @@ jobs:
           apk add --no-cache \
             nftables \
             iproute2 \
-            iptables \
             sudo \
             bash \
             musl-dev \
             gcc \
-            make \
-            linux-headers \
-            openssl \
-            openssl-dev
+            openssl
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.81
-        with:
-          components: clippy
-          targets: x86_64-unknown-linux-musl
+      - name: Verify environment
+        run: |
+          echo "PATH: $PATH"
+          which cargo || echo "cargo not found in PATH"
+          cargo --version || echo "cargo command failed"
+          rustc --version || echo "rustc command failed"
 
       - name: Build project
         run: cargo build -q
+
+      - name: Fix build script
+        run: |
+          # Ajouter une ligne au début du script pour l'export de PATH
+          if [ -f "./build.sh" ]; then
+            sed -i '1a export PATH=$PATH:/usr/local/cargo/bin' ./build.sh
+            chmod +x ./build.sh
+          fi
 
       - name: Run tests
         run: |
