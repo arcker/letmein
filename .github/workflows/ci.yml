@@ -9,50 +9,27 @@ env:
   CARGO_TERM_QUIET: true
   CARGO_OUTPUT_FORMAT: short
   LETMEIN_DISABLE_SECCOMP: 1
+  IN_CI: true
 
 jobs:
   test:
     name: Run tests
     runs-on: ubuntu-latest
-    container:
-      image: rust:alpine
-      options: --privileged --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
       
       - name: Install dependencies
         run: |
-          apk add --no-cache \
+          sudo apt-get update
+          sudo apt-get install -y \
             nftables \
             iproute2 \
-            sudo \
-            bash \
-            musl-dev \
-            gcc \
-            openssl
-
-      - name: Verify environment
-        run: |
-          echo "PATH: $PATH"
-          which cargo || echo "cargo not found in PATH"
-          cargo --version || echo "cargo command failed"
-          rustc --version || echo "rustc command failed"
-
-      - name: Build project
-        run: cargo build -q
-
-      - name: Fix build script
-        run: |
-          # Ajouter une ligne au début du script pour l'export de PATH
-          if [ -f "./build.sh" ]; then
-            sed -i '1a export PATH=$PATH:/usr/local/cargo/bin' ./build.sh
-            chmod +x ./build.sh
-          fi
+            docker.io
 
       - name: Run tests
         run: |
           chmod +x ./test.sh
-          ./test.sh --local knock close
+          ./test.sh knock close
 
   client_builds:
     name: Build clients

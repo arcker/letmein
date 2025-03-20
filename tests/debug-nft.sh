@@ -1,75 +1,47 @@
-#!/bin/sh
-# Script de débogage pour afficher l'état des tables nftables
+#!/bin/bash
 
-echo "============================================================"
-echo "=== DÉBOGAGE NFTABLES - $(date) ==="
-echo "============================================================"
+# Script de débogage pour nftables
 
-echo "\n=== Variables d'environnement ==="
-echo "MOCK_NFTABLES=${MOCK_NFTABLES}"
-echo "LETMEIN_DISABLE_SECCOMP=${LETMEIN_DISABLE_SECCOMP}"
-echo "RUST_BACKTRACE=${RUST_BACKTRACE}"
+set -e
 
-echo "\n=== Informations système ==="
-uname -a
-id
+echo "=== DÉBOGAGE NFTABLES ==="
+echo "Utilisateur: $(whoami)"
 
-echo "\n=== Information nft ==="
-which nft
-nft --version
-
-echo "\n=== Commande nft list ruleset (format texte) ==="
-nft list ruleset 2>&1
-RET=$?
-echo "Exit code: $RET"
-
-echo "\n=== Commande nft -j list ruleset (format JSON) ==="
-nft -j list ruleset 2>&1
-RET=$?
-echo "Exit code: $RET"
-
-echo "\n=== Tables nftables existantes ==="
-nft list tables 2>&1
-RET=$?
-echo "Exit code: $RET"
-
-echo "\n=== Chaînes nftables existantes ==="
-nft list chains 2>&1
-RET=$?
-echo "Exit code: $RET"
-
-echo "\n=== Analyse spécifique chaîne LETMEIN-INPUT ==="
-nft list chain inet filter LETMEIN-INPUT 2>&1
-RET=$?
-echo "Exit code: $RET"
-
-echo "\n=== Recherche des règles pour le port 42 (tous formats) ==="
-nft list ruleset | grep -i "42" || echo "Aucune règle trouvée pour le port 42 (format texte)"
-nft -j list ruleset | grep -i "42" || echo "Aucune règle trouvée pour le port 42 (format JSON)"
-
-echo "\n=== Recherche des règles pour les adresses ::1 et 127.0.0.1 ==="
-nft list ruleset | grep -E "::1|127.0.0.1" || echo "Aucune règle trouvée pour les adresses ::1 ou 127.0.0.1 (format texte)"
-nft -j list ruleset | grep -E "::1|127.0.0.1" || echo "Aucune règle trouvée pour les adresses ::1 ou 127.0.0.1 (format JSON)"
-
-echo "\n=== Contenu du répertoire /run/letmein ==="
-ls -la /run/letmein/ 2>/dev/null || echo "Répertoire non disponible"
-
-echo "\n=== Processus letmein en cours d'exécution ==="
-ps aux | grep -E "letmeind|letmeinfwd" | grep -v grep || echo "Aucun processus letmein en cours d'exécution"
-
-echo "\n=== Pile d'appel letmeinfwd (vérifications de règles) ==="
-ps aux | grep "letmeinfwd" | grep -v grep | awk '{print $2}' | xargs -I{} sh -c 'if [ -n "{}" ]; then echo "PID: {}"; strace -f -p {} -e trace=network 2>&1 | head -n 20 || echo "Échec de strace"; fi' || echo "Processus letmeinfwd non trouvé"
-
-echo "\n=== Test direct de commandes nftables ==="
-echo "- Tentative d'ajout d'une règle de test:"
-if [ "$MOCK_NFTABLES" = "1" ]; then
-    echo "Mode MOCK_NFTABLES activé, affichage des règles simulées"
-else
-    nft add rule inet filter input tcp dport 12345 accept comment \"test-debug\" 2>&1 || echo "Échec de l'ajout de règle"
-    nft list ruleset | grep "12345" || echo "Règle de test non trouvée"
-    nft delete rule inet filter input handle $(nft -a list ruleset | grep "12345" | grep -o "handle [0-9]*" | awk '{print $2}') 2>/dev/null || echo "Échec de la suppression"
+# Lister les tables nftables
+echo "=== TABLES ET RÈGLES ACTUELLES ==="
+if command -v nft >/dev/null 2>&1; then
+    nft list ruleset
+else 
+    echo "nft non trouvé, essayant avec sudo"
+    if sudo -E nft list ruleset; then
+        echo "Succès avec sudo nft"
+    else
+        echo "Échec avec sudo nft"
+        exit 1
+    fi
 fi
 
-echo "\n============================================================"
+# Vérifier la présence des chaînes letmein
+echo "=== VÉRIFICATION DES CHAÎNES LETMEIN ==="
+if ! nft list ruleset | grep -q LETMEIN; then
+    echo "Aucune chaîne LETMEIN trouvée"
+else
+    echo "Chaînes LETMEIN trouvées:"
+    nft list ruleset | grep -A 5 LETMEIN || true
+fi
+
+# Plus d'informations sur l'environnement
+echo "=== ENVIRONNEMENT ==="
+if [ -f /.dockerenv ]; then
+    echo "Exécution dans un conteneur Docker"
+fi
+
+# Vérifier les droits CAP_NET_ADMIN
+echo "=== CAPACITÉS ==="
+if command -v capsh >/dev/null 2>&1; then
+    capsh --print | grep -i cap_net_admin || echo "CAP_NET_ADMIN non trouvé"
+else
+    echo "capsh non disponible pour vérifier les capacités"
+fi
+
 echo "=== FIN DU DÉBOGAGE NFTABLES ==="
-echo "============================================================"

@@ -3,9 +3,9 @@
 # Unified Test Script for Letmein
 # =========================================================================
 # Ce script est un point d'entrée unifié pour tous les tests:
-# - Tests locaux (anciennement run-tests.sh)
-# - Tests Docker (anciennement docker-test.sh)
-# - Débogage avancé (anciennement debug-test.sh)
+# - Mode CI: exécute les tests directement (car déjà dans un conteneur)
+# - Mode conteneur: crée un nouveau conteneur Docker et y exécute les tests
+# - Mode debug: lance un shell interactif dans un conteneur pour déboguer
 
 # Colors for display
 RED='\033[0;31m'
@@ -15,24 +15,47 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default settings
-MODE="local"               # Mode: local, docker, debug
+MODE="container"           # Mode: ci, container, debug
 LOG_LEVEL="normal"         # Log level: minimal, normal, verbose
 DEBUG_INTERVAL="5"         # Interval for debug state capture (seconds)
-WITH_GEN_KEY=""           # Whether to include gen-key test
-RUN_TESTS=()              # Tests to run
+WITH_GEN_KEY=""            # Whether to include gen-key test
+RUN_TESTS=()               # Tests to run
 LOG_DIR="$(pwd)/nft-logs"  # Directory for nftables logs
 SESSION_ID="$(date +%Y%m%d-%H%M%S)"
+
+# Detect if we're running in CI
+detect_environment() {
+    # Check for common CI environment variables
+    if [ -n "$IN_CI" ] || [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ] || [ -n "$GITLAB_CI" ] || [ -n "$TRAVIS" ] || [ -n "$JENKINS_URL" ]; then
+        echo -e "${BLUE}CI environment detected${NC}"
+        # In CI, we're likely already in a container, so use ci mode (direct execution)
+        MODE="ci"
+        return 0
+    fi
+    
+    # Check if we're in a container
+    if grep -q docker /proc/1/cgroup 2>/dev/null || [ -f /.dockerenv ]; then
+        echo -e "${BLUE}Docker container environment detected${NC}"
+        # We're already in a container, use ci mode (direct execution)
+        MODE="ci"
+        return 0
+    fi
+    
+    # If we're not in CI or a container, use container mode (create a new container)
+    MODE="container"
+    return 0
+}
 
 # Display usage information
 usage() {
     echo -e "${YELLOW}===== LETMEIN UNIFIED TEST SCRIPT =====${NC}"
     echo -e "${GREEN}Usage: $0 [OPTIONS] [TESTS]${NC}"
     echo -e "${BLUE}Modes:${NC}"
-    echo -e "  --local              Run tests locally (default)"
-    echo -e "  --docker             Run tests in Docker container"
+    echo -e "  --ci                 Run tests directly (for use in CI or when already in a container)"
+    echo -e "  --container          Run tests in a new Docker container (default for local development)"
     echo -e "  --debug              Start interactive debugging shell in Docker"
+    echo -e "  --auto               Auto-detect environment (ci if in a container, container otherwise)"
     echo -e "\n${BLUE}Test Options:${NC}"
-    echo -e "  # Option --real retirée car on utilise toujours les vrais nftables maintenant"
     echo -e "  --with-gen-key       Include gen-key test (disabled by default)"
     echo -e "  --capture-interval N Set interval between state captures (seconds, default: 5)"
     echo -e "  --verbose            Enable verbose logging"
@@ -42,10 +65,10 @@ usage() {
     echo -e "  close                Run close tests"
     echo -e "  gen-key              Run gen-key test (requires --with-gen-key)"
     echo -e "\n${BLUE}Examples:${NC}"
-    echo -e "  $0 knock close       Run knock and close tests locally with mock nftables"
-    echo -e "  $0 --docker --real   Run all tests in Docker with real nftables"
+    echo -e "  $0 knock close       Run knock and close tests in a container"
+    echo -e "  $0 --ci knock close  Run knock and close tests directly (in CI)"
     echo -e "  $0 --debug           Start debugging shell in Docker"
-    echo -e "  $0 --with-gen-key gen-key  Run gen-key test locally"
+    echo -e "  $0 --auto knock      Auto-detect environment for knock test"
     echo -e "\n${YELLOW}Note:${NC} If no test is specified, all appropriate tests will run"
     echo -e "      (knock and close by default, plus gen-key if --with-gen-key is used)"
     exit 0
@@ -144,7 +167,6 @@ run_local_tests() {
     # Set environment variables
     export LETMEIN_DISABLE_SECCOMP=1
     # Nous utilisons toujours les vrais nftables maintenant
-    unset MOCK_NFTABLES
     
     # Capture state before tests
     capture_nft_state "before-tests"
@@ -333,83 +355,120 @@ show_test_results() {
     echo -e "${GREEN}Tests exécutés avec succès${NC}"
 }
 
-# Parse command line options
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --local)
-            MODE="local"
-            echo -e "${YELLOW}Mode: Local testing${NC}"
+# Main function
+main() {
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ci|--local)
+                MODE="ci"
+                shift
+                ;;
+            --container|--docker)
+                MODE="container"
+                shift
+                ;;
+            --debug)
+                MODE="debug"
+                shift
+                ;;
+            --auto)
+                # We'll detect the environment later
+                MODE="auto"
+                shift
+                ;;
+            --help|-h)
+                usage
+                ;;
+            --verbose)
+                LOG_LEVEL="verbose"
+                shift
+                ;;
+            --minimal)
+                LOG_LEVEL="minimal"
+                shift
+                ;;
+            --with-gen-key)
+                WITH_GEN_KEY="1"
+                shift
+                ;;
+            --capture-interval)
+                DEBUG_INTERVAL="$2"
+                shift 2
+                ;;
+            *)
+                # If it starts with --, it's an invalid option
+                if [[ "$1" == --* ]]; then
+                    echo -e "${RED}Unknown option: $1${NC}"
+                    usage
+                    exit 1
+                fi
+                
+                # Otherwise, it's a test name
+                RUN_TESTS+=("$1")
+                shift
+                ;;
+        esac
+    done
+    
+    # If auto mode, detect environment
+    if [ "$MODE" = "auto" ]; then
+        detect_environment
+    fi
+    
+    # Now either run directly or in container
+    case "$MODE" in
+        ci)
+            echo -e "Mode: ${GREEN}CI testing${NC} (direct execution)"
             ;;
-        --docker)
-            MODE="docker"
-            echo -e "${YELLOW}Mode: Docker testing${NC}"
+        container)
+            echo -e "Mode: ${GREEN}Container testing${NC} (in a new Docker container)"
             ;;
-        --debug)
-            MODE="debug"
-            echo -e "${YELLOW}Mode: Interactive debugging in Docker${NC}"
-            ;;
-        --real)
-            echo -e "${YELLOW}Option --real ignorée: les vrais nftables sont déjà utilisés par défaut${NC}"
-            ;;
-        --with-gen-key)
-            WITH_GEN_KEY="1"
-            echo -e "${YELLOW}Including gen-key test${NC}"
-            ;;
-        --capture-interval)
-            shift
-            DEBUG_INTERVAL="$1"
-            echo -e "${YELLOW}Debug interval: $DEBUG_INTERVAL seconds${NC}"
-            ;;
-        --verbose)
-            LOG_LEVEL="verbose"
-            echo -e "${YELLOW}Log level: Verbose${NC}"
-            ;;
-        --minimal)
-            LOG_LEVEL="minimal"
-            echo -e "${YELLOW}Log level: Minimal${NC}"
-            ;;
-        --help)
-            usage
-            ;;
-        knock|close|gen-key)
-            RUN_TESTS+=("$1")
-            echo -e "${YELLOW}Adding test: $1${NC}"
-            ;;
-        -*)
-            echo -e "${RED}Unknown option: $1${NC}"
-            usage
-            ;;
-        *)
-            RUN_TESTS+=("$1")
-            echo -e "${YELLOW}Adding test: $1${NC}"
+        debug)
+            echo -e "Mode: ${GREEN}Debug mode${NC} (interactive shell)"
             ;;
     esac
-    shift
-done
+    
+    # Display the tests to run
+    if [ ${#RUN_TESTS[@]} -gt 0 ]; then
+        for test in "${RUN_TESTS[@]}"; do
+            echo -e "Adding test: ${YELLOW}$test${NC}"
+        done
+    else
+        echo -e "Using default tests: ${YELLOW}knock close${NC}"
+        if [ "$WITH_GEN_KEY" = "1" ]; then
+            echo -e "Also including: ${YELLOW}gen-key${NC}"
+        fi
+    fi
+    
+    # Run tests with the chosen mode
+    case "$MODE" in
+        ci)
+            run_local_tests
+            ;;
+        container)
+            run_docker_tests
+            ;;
+        debug)
+            run_debug_mode
+            ;;
+        *)
+            echo -e "${RED}Unknown mode: $MODE${NC}"
+            exit 1
+            ;;
+    esac
+    
+    local exit_code=$?
+    
+    # Display success message
+    if [ $exit_code -eq 0 ]; then
+        echo -e "${GREEN}Tests exécutés avec succès${NC}"
+        return 0
+    else
+        echo -e "${RED}Des erreurs se sont produites pendant les tests${NC}"
+        return $exit_code
+    fi
+}
 
-# Validate test selection
-if [[ " ${RUN_TESTS[*]} " =~ " gen-key " ]] && [ "$WITH_GEN_KEY" != "1" ]; then
-    echo -e "${RED}The gen-key test was specified but --with-gen-key is not enabled${NC}"
-    echo -e "${YELLOW}Use --with-gen-key to run the gen-key test${NC}"
-    exit 1
-fi
-
-# Run tests based on selected mode
-case "$MODE" in
-    local)
-        run_local_tests
-        exit $?
-        ;;
-    docker)
-        run_docker_tests
-        exit $?
-        ;;
-    debug)
-        run_debug_mode
-        exit $?
-        ;;
-    *)
-        echo -e "${RED}Unknown mode: $MODE${NC}"
-        usage
-        ;;
-esac
+# Run the main function
+main "$@"

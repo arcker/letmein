@@ -706,24 +706,9 @@ pid_letmeind=
 # Fonction pour initialiser nftables avec notre script d'initialisation
 initialize_nftables()
 {
-    # Ne pas exécuter en mode stub
-    if [ "$MOCK_NFTABLES" = "1" ]; then
-        info "Mode stub nftables activé, pas besoin d'initialiser nftables"
-        return 0
-    fi
-    
-    info "Initialisation de nftables pour les tests..."
-    if [ -x "$testdir/setup-nftables.sh" ]; then
-        "$testdir/setup-nftables.sh"
-        if [ $? -ne 0 ]; then
-            warning "ERREUR: Échec lors de l'initialisation de nftables"
-            echo "La commande setup-nftables.sh a retourné le code d'erreur $?"
-        else
-            info "Initialisation de nftables réussie"
-        fi
-    else
-        warning "Le script setup-nftables.sh n'existe pas ou n'est pas exécutable"
-    fi
+    info "Les tables nftables sont initialisées automatiquement par le stub nft"
+    # Le stub nft crée déjà les tables et chaînes nécessaires automatiquement
+    return 0
 }
 
 # Fonction pour initialiser le fichier de configuration avec les clés utilisateur
