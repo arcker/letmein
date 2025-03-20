@@ -29,7 +29,7 @@ jobs:
       - name: Run tests
         run: |
           chmod +x ./test.sh
-          ./test.sh knock close
+          ./test.sh --ci knock close
 
   client_builds:
     name: Build clients
