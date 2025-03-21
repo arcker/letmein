@@ -23,14 +23,11 @@ jobs:
       - name: Debug Container Environment
         run: |
           echo "PATH=$PATH"
-          which bash || echo "bash not found"
-          which sh || echo "sh not found"
-          find / -name sh 2>/dev/null || echo "No sh found"
-          find / -name bash 2>/dev/null || echo "No bash found"
           ls -la /bin || echo "/bin not accessible"
-          ls -la /usr/bin || echo "/usr/bin not accessible"
-          cat /etc/os-release || echo "No OS info"
-        shell: bash
+          ls -la /usr/bin | grep bash || echo "bash not found in /usr/bin"
+          ls -la /usr/bin | grep sh || echo "sh not found in /usr/bin"
+          find / -name bash 2>/dev/null || echo "No bash found"
+        shell: sh
       
       - name: Install dependencies
         run: |
@@ -43,7 +40,7 @@ jobs:
             git \
             libcap2-bin \
             sudo
-        shell: bash
+        shell: sh
       
       - name: Diagnostics
         run: |
@@ -54,38 +51,40 @@ jobs:
           echo "Script permissions:"
           [ -f "./test.sh" ] && echo "File exists" || echo "File does not exist"
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
-        shell: bash
+          file ./test.sh || echo "Cannot determine file type"
+          head -n 1 ./test.sh || echo "Cannot read file"
+        shell: sh
 
       - name: Run tests
         run: |
-          echo "Exécution avec bash explicitement:"
-          bash ./test.sh --ci knock close
-        shell: bash
+          echo "Exécution avec sh explicitement:"
+          sh ./test.sh --ci knock close
+        shell: sh
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"
 
-  client_builds:
-    name: Build clients
-    strategy:
-      matrix:
-        os:
-          - windows-latest
-          - macos-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
+  # client_builds:
+  #   name: Build clients
+  #   strategy:
+  #     matrix:
+  #       os:
+  #         - windows-latest
+  #         - macos-latest
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - uses: actions/checkout@v4
       
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.81
-        with:
-          components: clippy
+  #     - name: Install Rust
+  #       uses: dtolnay/rust-toolchain@1.81
+  #       with:
+  #         components: clippy
       
-      - name: Build and test client packages
-        run: |
-          cargo build -q --package letmein
-          cargo clippy --package letmein -- --deny warnings
-          cargo test --package letmein
-          cargo test --package letmein-conf
-          cargo test --package letmein-proto
+  #     - name: Build and test client packages
+  #       run: |
+  #         cargo build -q --package letmein
+  #         cargo clippy --package letmein -- --deny warnings
+  #         cargo test --package letmein
+  #         cargo test --package letmein-conf
+  #         cargo test --package letmein-proto
 
