@@ -20,6 +20,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Debug Container Environment
+        run: |
+          echo "PATH=$PATH"
+          which bash || echo "bash not found"
+          which sh || echo "sh not found"
+          find / -name sh 2>/dev/null || echo "No sh found"
+          find / -name bash 2>/dev/null || echo "No bash found"
+          ls -la /bin || echo "/bin not accessible"
+          ls -la /usr/bin || echo "/usr/bin not accessible"
+          cat /etc/os-release || echo "No OS info"
+        shell: bash
+      
       - name: Install dependencies
         run: |
           apt-get update
@@ -30,8 +42,8 @@ jobs:
             curl \
             git \
             libcap2-bin \
-            sudo \
-            bash
+            sudo
+        shell: bash
       
       - name: Diagnostics
         run: |
@@ -42,11 +54,13 @@ jobs:
           echo "Script permissions:"
           [ -f "./test.sh" ] && echo "File exists" || echo "File does not exist"
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
+        shell: bash
 
       - name: Run tests
         run: |
           echo "Exécution avec bash explicitement:"
           bash ./test.sh --ci knock close
+        shell: bash
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"
