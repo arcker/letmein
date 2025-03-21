@@ -16,20 +16,22 @@ jobs:
     name: Run tests
     runs-on: ubuntu-latest
     container:
-      image: rust:alpine
+      image: rust:bookworm
     steps:
       - uses: actions/checkout@v4
       
       - name: Install dependencies
         run: |
-          apk add --no-cache \
+          apt-get update
+          apt-get install -y \
             nftables \
             iproute2 \
-            build-base \
+            build-essential \
             curl \
             git \
-            libcap \
-            sudo
+            libcap2-bin \
+            sudo \
+            bash
       
       - name: Diagnostics
         run: |
@@ -43,10 +45,8 @@ jobs:
 
       - name: Run tests
         run: |
-          echo "Contenu du shebang:"
-          head -n 1 ./test.sh
-          echo "Tentative d'exécution avec sh:"
-          sh ./test.sh --ci knock close
+          echo "Exécution avec bash explicitement:"
+          bash ./test.sh --ci knock close
 
   client_builds:
     name: Build clients
