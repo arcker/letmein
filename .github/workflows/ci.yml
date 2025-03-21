@@ -43,8 +43,10 @@ jobs:
 
       - name: Run tests
         run: |
-          chmod +x ./test.sh
-          ./test.sh --ci knock close
+          echo "Contenu du shebang:"
+          head -n 1 ./test.sh
+          echo "Tentative d'exécution avec sh:"
+          sh ./test.sh --ci knock close
 
   client_builds:
     name: Build clients
