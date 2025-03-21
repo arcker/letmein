@@ -27,7 +27,9 @@ jobs:
           which sh || echo "sh not found in PATH"
           which bash || echo "bash not found in PATH"
           find / -name sh 2>/dev/null || echo "No sh found"
-        shell: sh
+          find / -name bash 2>/dev/null || echo "No bash found"
+          cat /etc/os-release || echo "OS release info not available"
+        shell: /bin/sh
       
       - name: Install dependencies
         run: |
@@ -37,8 +39,9 @@ jobs:
             git \
             nftables \
             sudo \
-            libcap
-        shell: sh
+            libcap \
+            bash
+        shell: /bin/sh
       
       - name: Diagnostics
         run: |
@@ -51,13 +54,14 @@ jobs:
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
-        shell: sh
+          chmod +x ./test.sh
+        shell: /bin/sh
 
       - name: Run tests
         run: |
-          echo "Exécution avec sh explicitement:"
-          sh ./test.sh --ci knock close
-        shell: sh
+          echo "Exécution avec bash explicitement:"
+          bash ./test.sh --ci knock close
+        shell: /bin/sh
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"
