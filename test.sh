@@ -6,7 +6,7 @@
 # - Mode CI: exécute les tests directement (car déjà dans un conteneur)
 # - Mode conteneur: crée un nouveau conteneur Docker et y exécute les tests
 # - Mode debug: lance un shell interactif dans un conteneur pour déboguer
-
+echo "starting test.sh"
 # Colors for display
 RED='\033[0;31m'
 GREEN='\033[0;32m'
