@@ -16,7 +16,7 @@ jobs:
     name: Run tests
     runs-on: ubuntu-latest
     container:
-      image: rust:bookworm
+      image: rust:alpine
     steps:
       - uses: actions/checkout@v4
       
@@ -24,24 +24,21 @@ jobs:
         run: |
           echo "PATH=$PATH"
           ls -la /bin || echo "/bin not accessible"
-          ls -la /usr/bin | grep bash || echo "bash not found in /usr/bin"
-          ls -la /usr/bin | grep sh || echo "sh not found in /usr/bin"
-          find / -name bash 2>/dev/null || echo "No bash found"
-        shell: bash
+          which sh || echo "sh not found in PATH"
+          which bash || echo "bash not found in PATH"
+          find / -name sh 2>/dev/null || echo "No sh found"
+        shell: sh
       
       - name: Install dependencies
         run: |
-          apt-get update
-          apt-get install -y \
-            nftables \
-            build-essential \
+          apk add --no-cache \
+            build-base \
             curl \
             git \
-            libcap2-bin \
+            nftables \
             sudo \
-            dash
-          ln -sf /usr/bin/dash /bin/sh
-        shell: bash
+            libcap
+        shell: sh
       
       - name: Diagnostics
         run: |
@@ -54,13 +51,13 @@ jobs:
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
-        shell: bash
+        shell: sh
 
       - name: Run tests
         run: |
-          chmod +x ./test.sh
-          ./test.sh --ci knock close
-        shell: bash
+          echo "Exécution avec sh explicitement:"
+          sh ./test.sh --ci knock close
+        shell: sh
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"
