@@ -47,6 +47,9 @@ jobs:
         run: |
           echo "Exécution avec bash explicitement:"
           bash ./test.sh --ci knock close
+        env:
+          PATH: "/usr/local/cargo/bin:$PATH"
+          CARGO_HOME: "/usr/local/cargo"
 
   client_builds:
     name: Build clients

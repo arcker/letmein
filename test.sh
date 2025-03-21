@@ -152,24 +152,14 @@ stop_periodic_capture() {
 run_local_tests() {
     echo -e "${GREEN}=== RUNNING LOCAL TESTS ===${NC}"
     
-    # Capture initial state
-    capture_nft_state "initial"
-    
-    # Start periodic capture if in debug mode
-    if [ "$LOG_LEVEL" = "verbose" ]; then
-        start_periodic_capture
-    fi
-    
     # Build the project if necessary
     echo -e "${YELLOW}Building the project...${NC}"
-    cargo build
+    which cargo
+    echo "PATH=$PATH"
+    /usr/local/cargo/bin/cargo build || cargo build
     
     # Set environment variables
     export LETMEIN_DISABLE_SECCOMP=1
-    # Nous utilisons toujours les vrais nftables maintenant
-    
-    # Capture state before tests
-    capture_nft_state "before-tests"
     
     # Prepare test arguments
     local test_args=""
@@ -192,14 +182,6 @@ run_local_tests() {
     # Run tests with sudo for nftables access
     sudo -E ./tests/run-tests.sh $test_args
     TEST_EXIT_CODE=$?
-    
-    # Capture state after tests
-    capture_nft_state "after-tests"
-    
-    # Stop periodic capture
-    if [ "$LOG_LEVEL" = "verbose" ]; then
-        stop_periodic_capture
-    fi
     
     # Display test results
     if [ $TEST_EXIT_CODE -eq 0 ]; then

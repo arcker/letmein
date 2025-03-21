@@ -54,11 +54,27 @@ build_project()
 {
     info "Building project..."
     cd "$basedir" || die "cd failed"
-    ./build.sh || die "Build failed"
+    
+    # Au lieu d'utiliser build.sh, compiler directement avec cargo
+    info "Compiling with cargo directly..."
+    export LETMEIN_CONF_PREFIX="/opt/letmein"
+    
+    # S'assurer que cargo est dans le PATH
+    if ! which cargo > /dev/null; then
+        info "Cargo not in PATH, trying to locate it..."
+        if [ -x "/usr/local/cargo/bin/cargo" ]; then
+            export PATH="/usr/local/cargo/bin:$PATH"
+            info "Added /usr/local/cargo/bin to PATH"
+        fi
+    fi
+    
+    # Compiler le projet
+    cargo build || die "Cargo build failed"
 }
 
 cargo_clippy()
 {
+    which cargo > /dev/null || { info "Cargo not found for clippy"; return 0; }
     cargo clippy -- --deny warnings || die "cargo clippy failed"
     cargo clippy --tests -- --deny warnings || die "cargo clippy --tests failed"
 }
