@@ -38,8 +38,10 @@ jobs:
             curl \
             git \
             libcap2-bin \
-            sudo
-        shell: sh
+            sudo \
+            dash
+          ln -sf /usr/bin/dash /bin/sh
+        shell: bash
       
       - name: Diagnostics
         run: |
@@ -52,13 +54,13 @@ jobs:
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
-        shell: sh
+        shell: bash
 
       - name: Run tests
         run: |
-          echo "Exécution avec sh explicitement:"
-          sh ./test.sh --ci knock close
-        shell: sh
+          chmod +x ./test.sh
+          ./test.sh --ci knock close
+        shell: bash
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"
