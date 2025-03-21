@@ -30,6 +30,16 @@ jobs:
             git \
             libcap \
             sudo
+      
+      - name: Diagnostics
+        run: |
+          pwd
+          ls -la
+          echo "Current directory contents:"
+          ls -la .
+          echo "Script permissions:"
+          [ -f "./test.sh" ] && echo "File exists" || echo "File does not exist"
+          [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
 
       - name: Run tests
         run: |
