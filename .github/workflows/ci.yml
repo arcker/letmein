@@ -27,7 +27,7 @@ jobs:
           ls -la /usr/bin | grep bash || echo "bash not found in /usr/bin"
           ls -la /usr/bin | grep sh || echo "sh not found in /usr/bin"
           find / -name bash 2>/dev/null || echo "No bash found"
-        shell: sh
+        shell: bash
       
       - name: Install dependencies
         run: |
@@ -40,7 +40,7 @@ jobs:
             git \
             libcap2-bin \
             sudo
-        shell: sh
+        shell: bash
       
       - name: Diagnostics
         run: |
@@ -53,13 +53,13 @@ jobs:
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
-        shell: sh
+        shell: bash
 
       - name: Run tests
         run: |
-          echo "Exécution avec sh explicitement:"
-          sh ./test.sh --ci knock close
-        shell: sh
+          echo "Exécution avec bash explicitement:"
+          bash -c ./test.sh --ci knock close
+        shell: bash
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"
