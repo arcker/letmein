@@ -42,10 +42,9 @@ jobs:
             sudo
         shell: bash
       
-      - name: Diagnostics
+      - name: Run tests
         run: |
           pwd
-          ls -la
           echo "Current directory contents:"
           ls -la .
           echo "Script permissions:"
@@ -53,16 +52,13 @@ jobs:
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
-        shell: bash
-
-      - name: Run tests
-        run: |
           echo "Exécution avec bash explicitement:"
-          bash -c ./test.sh --ci knock close
-        shell: bash
+          /bin/bash -c test.sh  knock close
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"
+
+
 
   # client_builds:
   #   name: Build clients
