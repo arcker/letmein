@@ -34,17 +34,17 @@ jobs:
           apt-get update
           apt-get install -y \
             nftables \
-            iproute2 \
             build-essential \
             curl \
             git \
             libcap2-bin \
             sudo
-        shell: bash
+        shell: sh
       
-      - name: Run tests
+      - name: Diagnostics
         run: |
           pwd
+          ls -la
           echo "Current directory contents:"
           ls -la .
           echo "Script permissions:"
@@ -52,8 +52,13 @@ jobs:
           [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
-          echo "Exécution avec bash explicitement:"
-          /bin/bash -c test.sh  knock close
+        shell: sh
+
+      - name: Run tests
+        run: |
+          echo "Exécution avec sh explicitement:"
+          sh ./test.sh --ci knock close
+        shell: sh
         env:
           PATH: "/usr/local/cargo/bin:$PATH"
           CARGO_HOME: "/usr/local/cargo"

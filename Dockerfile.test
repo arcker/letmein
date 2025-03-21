@@ -24,17 +24,17 @@ RUN echo "ALL ALL=(ALL) NOPASSWD: /sbin/nft, /usr/bin/strace" >> /etc/sudoers
 RUN mkdir -p /etc/nftables /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd \
     && chmod 777 /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
 
-# Créer un fichier de configuration nftables minimal (pour référence seulement)
-RUN echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf && \
-    echo 'flush ruleset' >> /etc/nftables/basic.conf && \
-    echo 'table inet filter {' >> /etc/nftables/basic.conf && \
-    echo '  chain input { type filter hook input priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
-    echo '  chain forward { type filter hook forward priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
-    echo '  chain output { type filter hook output priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
-    echo '  chain LETMEIN-INPUT { type filter hook input priority 100; policy accept; }' >> /etc/nftables/basic.conf && \
-    echo '  chain LETMEIN-OUTPUT { type filter hook output priority 100; policy accept; }' >> /etc/nftables/basic.conf && \
-    echo '}' >> /etc/nftables/basic.conf && \
-    chmod +x /etc/nftables/basic.conf
+# # Créer un fichier de configuration nftables minimal (pour référence seulement)
+# RUN echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf && \
+#     echo 'flush ruleset' >> /etc/nftables/basic.conf && \
+#     echo 'table inet filter {' >> /etc/nftables/basic.conf && \
+#     echo '  chain input { type filter hook input priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain forward { type filter hook forward priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain output { type filter hook output priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain LETMEIN-INPUT { type filter hook input priority 100; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain LETMEIN-OUTPUT { type filter hook output priority 100; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '}' >> /etc/nftables/basic.conf && \
+#     chmod +x /etc/nftables/basic.conf
 
 # Créer un script d'initialisation pour configurer l'environnement
 RUN echo '#!/bin/sh' > /init-env.sh && \

@@ -98,29 +98,6 @@ check_nftables()
     fi
     
     # Check if we can execute the system nft command with sudo
-    echo "=== nft command details ===="
-    which nft
-    ls -l $(which nft 2>/dev/null || echo "nft not found")
-    
-    echo "=== System details ===="
-    uname -a
-    cat /proc/version
-    
-    echo "=== Trying to execute nft list ruleset ===="
-    if command -v sudo > /dev/null; then
-        echo "Attempting with sudo /sbin/nft list ruleset:"
-        sudo /sbin/nft list ruleset 2>&1 || echo "Command failed with code: $?"
-        
-        if [ -x "/usr/sbin/nft" ]; then
-            echo "Attempting with sudo /usr/sbin/nft list ruleset:"
-            sudo /usr/sbin/nft list ruleset 2>&1 || echo "Command failed with code: $?"
-        fi
-    else
-        echo "sudo is not installed"
-        echo "Attempting without sudo:"
-        /sbin/nft list ruleset 2>&1 || echo "Command failed with code: $?"
-    fi
-    
     if ! sudo /sbin/nft list ruleset &> /dev/null && ! sudo /usr/sbin/nft list ruleset &> /dev/null; then
         warning "Unable to execute 'sudo nft list ruleset' with the system command. Check sudo permissions."
         return 1
@@ -137,65 +114,54 @@ verify_nft_rule_exists()
     local port="$2"
     local proto="$3"
     
-    info "--- Checking for the presence of nftables rule for $addr port $port/$proto..."
-
-    # Toujours vérifier les règles nftables
+    info "Checking nftables rule for $addr port $port/$proto..."
 
     # 1. D'abord essayer avec letmeinfwd verify
     local verify_result=0
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
-        info "Using letmeinfwd verify with --should-exist=true to check rule..."
         if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist=true; then
-            info "SUCCESS: Rule found for $addr port $port/$proto using letmeinfwd verify"
+            info "Rule found for $addr port $port/$proto"
             return 0
         else
             verify_result=1
-            warning "First verification failed with letmeinfwd verify, trying direct nft check as fallback..."
         fi
     else
-        warning "--should-exist not supported, using direct nft check instead..."
         verify_result=1
     fi
 
     # 2. Si letmeinfwd verify a échoué ou n'est pas disponible, vérifier directement avec nft
     if [ $verify_result -ne 0 ]; then
-        info "Performing direct nft check to find rule for $addr port $port/$proto..."
-        # Convertir IPv6 pour la recherche grep (::1 -> \:\:1)
         local grep_addr="$(echo "$addr" | sed 's/:/\\:/g')"
-        
-        # Vérifier d'abord si la règle existe dans la sortie nft
         local nft_output=$(nft list ruleset)
         
-        # Rechercher une correspondance de l'adresse ET du port dans la sortie nft
-        # Ceci dépend un peu du format de sortie de nft, mais c'est une bonne approximation
         if echo "$nft_output" | grep -qE "(saddr|addr) ${grep_addr}" && echo "$nft_output" | grep -qE "dport ${port}"; then
-            info "SUCCESS: Rule found for $addr port $port/$proto using direct nft check!"
+            info "Rule found for $addr port $port/$proto"
             return 0
         elif echo "$nft_output" | grep -q "${grep_addr}.*dport ${port}" || echo "$nft_output" | grep -q "dport ${port}.*${grep_addr}"; then
-            info "SUCCESS: Rule found for $addr port $port/$proto using pattern matching!"
+            info "Rule found for $addr port $port/$proto"
             return 0
         else
             # Vérification plus spécifique pour IPv4/IPv6
             if [ "$addr" = "127.0.0.1" ] && echo "$nft_output" | grep -q "ip saddr 127.0.0.1" && echo "$nft_output" | grep -q "dport $port"; then
-                info "SUCCESS: IPv4 rule found for $addr port $port/$proto by specific pattern!"
+                info "IPv4 rule found for $addr port $port/$proto"
                 return 0
             elif [ "$addr" = "::1" ] && echo "$nft_output" | grep -q "ip6 saddr ::1" && echo "$nft_output" | grep -q "dport $port"; then
-                info "SUCCESS: IPv6 rule found for $addr port $port/$proto by specific pattern!"
+                info "IPv6 rule found for $addr port $port/$proto"
                 return 0
             else
                 # Si le format est ::ffff:127.0.0.1, vérifier aussi pour 127.0.0.1
                 if [[ "$addr" == "::ffff:"* ]]; then
                     local ipv4_addr="${addr#::ffff:}"
                     if echo "$nft_output" | grep -q "ip saddr $ipv4_addr" && echo "$nft_output" | grep -q "dport $port"; then
-                        info "SUCCESS: IPv4-mapped rule found for $addr port $port/$proto through IPv4 pattern!"
+                        info "IPv4-mapped rule found for $addr port $port/$proto"
                         return 0
                     fi
                 fi
             fi
             
             # Si on arrive ici, la règle n'a pas été trouvée
-            die "ERROR: nftables rule not found for $addr port $port/$proto after all verification methods!"
+            die "nftables rule not found for $addr port $port/$proto"
             return 1
         fi
     fi
@@ -208,36 +174,26 @@ verify_nft_rule_missing()
     local port="$2"
     local proto="$3"
     
-    info "--- Checking for the ABSENCE of nftables rule for $addr port $port/$proto..."
-
-    # Toujours vérifier les règles nftables
+    info "Checking absence of nftables rule for $addr port $port/$proto..."
 
     # 1. D'abord essayer avec letmeinfwd verify
     local verify_result=0
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
-        info "Using letmeinfwd verify with --should-exist=true to check rule absence..."
-        # Pour vérifier l'absence de règle, on s'attend à ce que la commande avec --should-exist=true échoue
         if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist=true; then
             verify_result=1
-            warning "First verification indicates rule is still present, trying direct nft check as fallback..."
         else
             # La règle est absente, c'est un succès pour le test d'absence
-            info "SUCCESS: Rule confirmed to be absent for $addr port $port/$proto using letmeinfwd verify"
+            info "Rule confirmed to be absent for $addr port $port/$proto"
             return 0
         fi
     else
-        warning "--should-exist not supported, using direct nft check instead for rule absence..."
         verify_result=1
     fi
 
     # 2. Si letmeinfwd verify a échoué ou n'est pas disponible, vérifier directement avec nft
     if [ $verify_result -ne 0 ]; then
-        info "Performing direct nft check to confirm absence of rule for $addr port $port/$proto..."
-        # Convertir IPv6 pour la recherche grep (::1 -> \:\:1)
         local grep_addr="$(echo "$addr" | sed 's/:/\\:/g')"
-        
-        # Vérifier si la règle existe dans la sortie nft
         local nft_output=$(nft list ruleset)
         
         # Vérifications spécifiques pour s'assurer que la règle n'existe pas
@@ -260,10 +216,10 @@ verify_nft_rule_missing()
         fi
         
         if [ $rule_found -eq 0 ]; then
-            info "SUCCESS: Rule confirmed to be absent for $addr port $port/$proto using direct nft check!"
+            info "Rule confirmed to be absent for $addr port $port/$proto"
             return 0
         else
-            die "ERROR: nftables rule is still present for $addr port $port/$proto after checking with nft!"
+            die "nftables rule is still present for $addr port $port/$proto"
             return 1
         fi
     fi
@@ -289,7 +245,7 @@ run_test_cycle()
     local test_type="$1"   # tcp ou udp
     local ip_version="$2" # ipv4, ipv6, ou dual (les deux)
 
-    info "### Running complete test cycle: $test_type with $ip_version ###"
+    info "Running complete test cycle: $test_type with $ip_version"
 
     rm -rf "$rundir"
     local conf="$testdir/conf/$test_type.conf"
@@ -346,50 +302,22 @@ run_test_cycle()
         || die "letmein knock failed with $ip_version"
     
     # 2. VERIFY: Vérifier immédiatement les règles nftables après le knock
-    info "Verifying nftables rules after $ip_version knock..."
     if $nftables_available; then
-        echo "--- Toutes les règles nftables après knock $ip_version ($test_type) ---"
-        echo "=== Liste des règles nftables actuelles ==="
-        nft list ruleset
-        if [ $? -ne 0 ]; then
-            echo "ERREUR: Échec lors de la liste des règles nftables"
-        fi
-        echo "--- Filtrage pour letmein ---"
-        echo "=== Recherche des règles letmein ==="
-        RULES_OUTPUT=$(nft list ruleset | grep -i letmein)
-        if [ -z "$RULES_OUTPUT" ]; then
-            echo "INFORMATION: Aucune règle letmein n'a été trouvée"
-        else
-            echo "$RULES_OUTPUT"
-        fi
-        echo "--- Inspection détaillée de letmein-dynamic ---"
-        echo "=== Vérification de la chaîne letmein-dynamic ==="
-        nft list chain inet filter letmein-dynamic
-        if [ $? -ne 0 ]; then
-            echo "ERREUR: Impossible d'afficher la chaîne letmein-dynamic"
-        fi
-        
+        info "Verifying nftables rules after knock..."
         # Vérifier si la règle existe avec notre fonction de vérification
-        info "Vérification formelle de la règle avec letmeinfwd verify"
         if [ "$test_type" = "tcp" ]; then
             if ! verify_nft_rule_exists "$conf" "$addr" 42 "tcp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) n'a pas été trouvée après knock"
-                echo "Détail: Aucune règle trouvée pour $addr port 42/tcp"
-            else
-                info "Règle TCP $test_type $ip_version vérifiée avec succès après knock"
+                warning "Rule verification failed for $test_type $ip_version (TCP)"
             fi
         else
             if ! verify_nft_rule_exists "$conf" "$addr" 42 "udp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) n'a pas été trouvée après knock"
-                echo "Détail: Aucune règle trouvée pour $addr port 42/udp"
-            else
-                info "Règle UDP $test_type $ip_version vérifiée avec succès après knock"
+                warning "Rule verification failed for $test_type $ip_version (UDP)"
             fi
         fi
     fi
     
     # 3. CLOSE: Fermer la connexion
-    info "Closing connection after $ip_version knock..."
+    info "Closing connection..."
     # Attendre un peu pour s'assurer que la règle a eu le temps d'être enregistrée
     sleep 1
     
@@ -399,43 +327,22 @@ run_test_cycle()
         $SECCOMP_OPT \
         --config "$conf" \
         close \
+        --user 12345678 \
         $ip_flags \
         localhost 42 \
         || warning "letmein close failed with $ip_version"
     
     # 4. VERIFY CLOSE: Vérifier que la règle a bien été supprimée
     if $nftables_available; then
-        info "Verifying nftables rules after $ip_version close..."
-        echo "--- Toutes les règles nftables après close $ip_version ---"
-        echo "=== Liste des règles nftables actuelles ==="
-        nft list ruleset
-        if [ $? -ne 0 ]; then
-            echo "ERREUR: Échec lors de la liste des règles nftables"
-        fi
-        echo "--- Filtrage pour letmein après close ---"
-        nft list ruleset | grep -i letmein || echo "Aucune règle letmein n'a été trouvée (attendu après close)"
-        echo "--- Inspection détaillée de letmein-dynamic après close ---"
-        echo "=== Vérification de la chaîne letmein-dynamic ==="
-        nft list chain inet filter letmein-dynamic
-        if [ $? -ne 0 ]; then
-            echo "ERREUR: Impossible d'afficher la chaîne letmein-dynamic"
-        fi
-        
+        info "Verifying nftables rules after close..."
         # Vérifier formellement l'absence de règle avec notre fonction de vérification
-        info "Vérification formelle de l'absence de règle après close"
         if [ "$test_type" = "tcp" ]; then
             if ! verify_nft_rule_missing "$conf" "$addr" 42 "tcp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) est toujours présente après close"
-                echo "Détail: Règle toujours présente pour $addr port 42/tcp"
-            else
-                info "Absence de règle TCP $test_type $ip_version vérifiée avec succès après close"
+                warning "Rule still present after close for $test_type $ip_version (TCP)"
             fi
         else
             if ! verify_nft_rule_missing "$conf" "$addr" 42 "udp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) est toujours présente après close"
-                echo "Détail: Règle toujours présente pour $addr port 42/udp"
-            else
-                info "Absence de règle UDP $test_type $ip_version vérifiée avec succès après close"
+                warning "Rule still present after close for $test_type $ip_version (UDP)"
             fi
         fi
     fi
@@ -445,21 +352,9 @@ run_test_cycle()
 
 # Fonction pour tracer les commandes de test avec détails
 trace_execution() {
-    echo "\n=================================================="
-    echo "EXÉCUTION: $*"
-    echo "==================================================\n"
-    
-    # Exécution avec trace détaillée
-    set -x
+    echo "EXECUTING: $*"
     "$@"
-    local result=$?
-    set +x
-    
-    echo "\n=================================================="
-    echo "RÉSULTAT DE: $* (code: $result)"
-    echo "==================================================\n"
-    
-    return $result
+    return $?
 }
 
 # Fonction pour exécuter les tests knock (remplacement de run_tests_knock)
@@ -467,24 +362,14 @@ run_tests_knock()
 {
     local test_type="$1"
     
-    echo "======================================================="
-    echo "=== DÉBUT DES TESTS KNOCK POUR $test_type ==="
-    echo "======================================================="
+    info "Running knock tests for $test_type"
     
-    info "### Running tests: knock $test_type ###"
-    
-    # Exécuter le cycle complet pour chaque version IP avec trace détaillée
+    # Exécuter le cycle complet pour chaque version IP
     trace_execution run_test_cycle "$test_type" "ipv4"
     trace_execution run_test_cycle "$test_type" "ipv6"
     trace_execution run_test_cycle "$test_type" "dual"
     
     info "All knock tests completed for $test_type"
-    
-    echo "======================================================="
-    echo "=== FIN DES TESTS KNOCK POUR $test_type ==="
-    echo "======================================================="
-    # Désactiver l'affichage détaillé
-    set +x
 }
 
 # Fonction pour exécuter des tests de fermeture
@@ -492,14 +377,7 @@ run_tests_close()
 {
     local test_type="$1"
     
-    echo "======================================================="
-    echo "=== DÉBUT DES TESTS CLOSE POUR $test_type ==="
-    echo "======================================================="
-    # Activer l'affichage de toutes les commandes
-    set -x
-
-    info "### Running close tests: $test_type ###"
-    info "Note: Les tests 'knock' incluent déjà le cycle complet (knock > verify > close)."
+    info "Running close tests for $test_type"
 
     # Cette fonction exécute des tests de fermeture spécifiques pour chaque type d'IP
     # en utilisant notre nouvelle fonction de test complet pour chaque protocole
@@ -508,12 +386,6 @@ run_tests_close()
     trace_execution run_close_test_cycle "$test_type" "dual"
     
     info "All close tests completed for $test_type"
-    
-    echo "======================================================="
-    echo "=== FIN DES TESTS CLOSE POUR $test_type ==="
-    echo "======================================================="
-    # Désactiver l'affichage détaillé
-    set +x
 }
 
 # Exécute un test complet de fermeture après ouverture (knock puis close) pour une adresse IP
@@ -522,7 +394,7 @@ run_close_test_cycle()
     local test_type="$1"  # tcp ou udp
     local ip_version="$2" # ipv4, ipv6, ou dual (les deux)
 
-    info "### Running specific close test cycle: $test_type with $ip_version ###"
+    info "Running close test cycle: $test_type with $ip_version"
 
     rm -rf "$rundir"
     local conf="$testdir/conf/$test_type.conf"
@@ -568,7 +440,7 @@ run_close_test_cycle()
     wait_for_pidfile letmeind "$pid_letmeind"
 
     # 1. KNOCK: Ouvrir le port avec knock
-    info "Opening port with knock $ip_version..."
+    info "Opening port with knock..."
     "$target/letmein" \
         --verbose \
         $SECCOMP_OPT \
@@ -582,39 +454,20 @@ run_close_test_cycle()
     # 2. VERIFY: Vérifier que la règle a bien été ajoutée
     if $nftables_available && [ "$test_type" != "test" ]; then
         sleep 1  # Attendre que les règles soient bien appliquées
-        echo "--- Règles nftables après knock $ip_version ---"
-        echo "=== Liste des règles nftables actuelles ==="
-        nft list ruleset
-        if [ $? -ne 0 ]; then
-            echo "ERREUR: Échec lors de la liste des règles nftables"
-        fi
-        echo "--- Inspection détaillée de letmein-dynamic ---"
-        echo "=== Vérification de la chaîne letmein-dynamic ==="
-        nft list chain inet filter letmein-dynamic
-        if [ $? -ne 0 ]; then
-            echo "ERREUR: Impossible d'afficher la chaîne letmein-dynamic"
-        fi
-        
         # Vérifier les règles avec notre fonction de vérification
         if [ "$test_type" = "tcp" ]; then
             if ! verify_nft_rule_exists "$conf" "$addr" 42 "tcp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) n'a pas été trouvée après knock"
-                echo "Détail: Aucune règle trouvée pour $addr port 42/tcp"
-            else
-                info "Règle TCP $test_type $ip_version vérifiée avec succès après knock"
+                warning "Rule verification failed for $test_type $ip_version (TCP)"
             fi
         else
             if ! verify_nft_rule_exists "$conf" "$addr" 42 "udp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) n'a pas été trouvée après knock"
-                echo "Détail: Aucune règle trouvée pour $addr port 42/udp"
-            else
-                info "Règle UDP $test_type $ip_version vérifiée avec succès après knock"
+                warning "Rule verification failed for $test_type $ip_version (UDP)"
             fi
         fi
     fi
 
     # 3. CLOSE: Fermer le port
-    info "Closing port with close $ip_version..."
+    info "Closing port..."
     "$target/letmein" \
         --verbose \
         $SECCOMP_OPT \
@@ -628,27 +481,14 @@ run_close_test_cycle()
     # 4. VERIFY CLOSE: Vérifier que la règle a bien été supprimée
     if $nftables_available && [ "$test_type" != "test" ]; then
         sleep 1  # Attendre que les règles soient bien supprimées
-        echo "--- Règles nftables après close $ip_version ---"
-        echo "=== Liste des règles nftables actuelles ==="
-        nft list ruleset
-        if [ $? -ne 0 ]; then
-            echo "ERREUR: Échec lors de la liste des règles nftables"
-        fi
-        
         # Vérifier l'absence de règle
         if [ "$test_type" = "tcp" ]; then
             if ! verify_nft_rule_missing "$conf" "$addr" 42 "tcp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (TCP) est toujours présente après close"
-                echo "Détail: Règle toujours présente pour $addr port 42/tcp"
-            else
-                info "Absence de règle TCP $test_type $ip_version vérifiée avec succès après close"
+                warning "Rule still present after close for $test_type $ip_version (TCP)"
             fi
         else
             if ! verify_nft_rule_missing "$conf" "$addr" 42 "udp"; then
-                warning "ERREUR DE VÉRIFICATION: La règle $test_type $ip_version (UDP) est toujours présente après close"
-                echo "Détail: Règle toujours présente pour $addr port 42/udp"
-            else
-                info "Absence de règle UDP $test_type $ip_version vérifiée avec succès après close"
+                warning "Rule still present after close for $test_type $ip_version (UDP)"
             fi
         fi
     fi
@@ -722,9 +562,19 @@ pid_letmeind=
 # Fonction pour initialiser nftables avec notre script d'initialisation
 initialize_nftables()
 {
-    info "Les tables nftables sont initialisées automatiquement par le stub nft"
-    # Le stub nft crée déjà les tables et chaînes nécessaires automatiquement
-    return 0
+    info "Initialisation minimale des tables nftables"
+    if command -v nft >/dev/null; then
+        info "Création de la table inet filter et de la chaîne LETMEIN-INPUT"
+        # Créer la table de base
+        nft -e add table inet filter 2>/dev/null || true
+        # Créer la chaîne LETMEIN-INPUT utilisée dans la configuration
+        # La chaîne letmein-dynamic sera créée par letmeinfwd lui-même
+        nft -e add chain inet filter LETMEIN-INPUT { type filter hook input priority 100\; policy accept\; } 2>/dev/null || true
+        return 0
+    else
+        warning "Commande nft non trouvée, impossible d'utiliser nftables"
+        return 1
+    fi
 }
 
 # Fonction pour initialiser le fichier de configuration avec les clés utilisateur
