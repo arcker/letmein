@@ -43,7 +43,7 @@ jobs:
             bash
         shell: sh
       
-      - name: Diagnostics
+      - name: Tests
         run: |
           pwd
           ls -la
@@ -55,16 +55,9 @@ jobs:
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
           chmod +x ./test.sh
+          ./test.sh --ci knock close
         shell: sh
 
-      - name: Run tests
-        run: |
-          echo "Exécution avec bash explicitement:"
-          /bin/bash ./test.sh --ci knock close || /usr/bin/bash ./test.sh --ci knock close
-        shell: sh
-        env:
-          PATH: "/usr/local/cargo/bin:$PATH"
-          CARGO_HOME: "/usr/local/cargo"
 
 
 
