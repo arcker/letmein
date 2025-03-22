@@ -14,7 +14,8 @@ use nftables::{
     helper::get_current_ruleset_with_args_async,
     schema::{NfListObject, NfObject},
 };
-use std::net::IpAddr;
+
+use std::{env, net::IpAddr, process::Command};
 
 /// Verify if a rule exists or is missing in the nftables ruleset
 /// 
@@ -28,6 +29,9 @@ pub async fn verify_nft_rule(
     proto: &str,
     should_exist: bool,
 ) -> ah::Result<bool> {
+    // Toujours vérifier les règles nftables réelles
+    println!("Verifying nftables rules for {} port {}/{}", addr_str, port, proto);
+
     // Parse the IP address
     let addr: IpAddr = match addr_str.parse() {
         Ok(addr) => addr,
@@ -41,8 +45,31 @@ pub async fn verify_nft_rule(
     // Format: "letmein_{addr}-{port}/{proto}"
     let comment = format!("letmein_{}-{}/{}", addr, port, proto);
     
-    // Get current ruleset using the nftables crate
-    let ruleset = get_current_ruleset_with_args_async(None::<&str>, None::<&str>).await?;
+    // Try to handle JSON output environment variable (for debug/logging purposes)
+    let json_output = env::var("NFT_JSON_OUTPUT").unwrap_or_else(|_| String::from("0"));
+    
+    // Debug logging for CI environment detection
+    if let Ok(ci) = env::var("CI") {
+        eprintln!("\x1b[1;33mCI environment detected (CI={}), using standard nft crate for verification\x1b[0m", ci);
+    }
+    
+    // Use the standard nft crate method for all environments
+    let ruleset = match get_current_ruleset_with_args_async(None::<&str>, None::<&str>).await {
+        Ok(ruleset) => ruleset,
+        Err(e) => {
+            eprintln!("\x1b[1;31mError getting nftables ruleset: {}\x1b[0m", e);
+            eprintln!("\x1b[1;33mNFT_JSON_OUTPUT is set to: {}\x1b[0m", json_output);
+            
+            // Try to run nft directly to see what's happening
+            eprintln!("\x1b[1;36mTrying direct nft command for diagnostics:\x1b[0m");
+            // Execute the nft command with the same arguments
+            let output = Command::new("nft").args(["--json", "list", "ruleset"]).output().unwrap();
+            eprintln!("\x1b[1;32m==== nft output: ====\x1b[0m\n{}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("\x1b[1;31m==== nft stderr: ====\x1b[0m\n{}", String::from_utf8_lossy(&output.stderr));
+            
+            return Err(e.into());
+        }
+    };
     
     // Print the ruleset for debugging
     println!("Current nftables ruleset:");

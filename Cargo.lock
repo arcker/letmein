@@ -683,10 +683,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nft-stub"
-version = "0.0.0"
-
-[[package]]
 name = "nftables"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

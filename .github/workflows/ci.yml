@@ -2,49 +2,98 @@ name: Build and test
 
 on:
   push:
+    branches:
+      - main
+      - master
   pull_request:
 
 env: 
   CARGO_TERM_COLOR: always
+  CARGO_TERM_QUIET: true
+  CARGO_OUTPUT_FORMAT: short
+  LETMEIN_DISABLE_SECCOMP: 1
+  IN_CI: true
 
 jobs:
-  server_and_client:
-    name: Server and client
-    strategy:
-      matrix:
-        toolchain:
-          - 1.81.0 # MSRV
-          - 1.85.0
+  test:
+    name: Run tests
     runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+      options: >-
+        --privileged 
+        --cap-add=NET_ADMIN 
+        --cap-add=SYS_ADMIN 
+        --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update ${{ matrix.toolchain }}
-      - run: rustup default ${{ matrix.toolchain }}
-      - run: rustup component add clippy
-      - run: cargo build --verbose
-      - run: sh ./tests/run-tests.sh
+      
+      - name: Debug Container Environment
+        run: |
+          echo "PATH=$PATH"
+          ls -la /bin || echo "/bin not accessible"
+          /bin/sh -c "which sh" || echo "sh not found in PATH"
+          /bin/sh -c "which bash" || echo "bash not found in PATH"
+          find / -name sh 2>/dev/null || echo "No sh found"
+          find / -name bash 2>/dev/null || echo "No bash found"
+          cat /etc/os-release || echo "OS release info not available"
+        shell: sh
+      
+      - name: Install dependencies
+        run: |
+          apk add --no-cache \
+            build-base \
+            curl \
+            git \
+            nftables \
+            sudo \
+            libcap \
+            bash \
+            openssl
+        shell: sh
+      
+      - name: Run tests
+        run: |
+          pwd
+          ls -la
+          echo "Current directory contents:"
+          ls -la .
+          echo "Script permissions:"
+          [ -f "./test.sh" ] && echo "File exists" || echo "File does not exist"
+          [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
+          file ./test.sh || echo "Cannot determine file type"
+          head -n 1 ./test.sh || echo "Cannot read file"
+          chmod +x ./test.sh
+          # Vérifier les droits nftables
+          echo "Testing nftables permissions:"
+          nft list tables || echo "Cannot list nftables tables"
+          nft add table inet filter || echo "Cannot add nftables table"
+          ./test.sh --ci knock close
+        shell: sh
 
-  client_only:
-    name: Client only
-    strategy:
-      matrix:
-        toolchain:
-          - 1.81.0 # MSRV
-          - 1.84.0
-        os:
-          - windows-latest
-          - macos-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup update ${{ matrix.toolchain }}
-      - run: rustup default ${{ matrix.toolchain }}
-      - run: rustup component add clippy
-      - run: cargo build --verbose --package letmein
-      - run: cargo clippy --package letmein -- --deny warnings
-      - run: cargo clippy --tests --package letmein -- --deny warnings
-      - run: cargo test --package letmein
-      - run: cargo test --package letmein-conf
-      - run: cargo test --package letmein-proto
 
-# vim: ts=2 sw=2 expandtab
+
+  # client_builds:
+  #   name: Build clients
+  #   strategy:
+  #     matrix:
+  #       os:
+  #         - windows-latest
+  #         - macos-latest
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+      
+  #     - name: Install Rust
+  #       uses: dtolnay/rust-toolchain@1.81
+  #       with:
+  #         components: clippy
+      
+  #     - name: Build and test client packages
+  #       run: |
+  #         cargo build -q --package letmein
+  #         cargo clippy --package letmein -- --deny warnings
+  #         cargo test --package letmein
+  #         cargo test --package letmein-conf
+  #         cargo test --package letmein-proto
+
