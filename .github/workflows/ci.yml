@@ -31,7 +31,7 @@ jobs:
           cat /etc/os-release || echo "OS release info not available"
         shell: sh
       
-      - name: Install dependencies
+      - name: Install dependencies for alpine
         run: |
           apk add --no-cache \
             build-base \
