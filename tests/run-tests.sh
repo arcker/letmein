@@ -74,6 +74,12 @@ build_project()
 
 cargo_clippy()
 {
+    # Vérifier si on doit sauter les vérifications clippy
+    if [ "${SKIP_CLIPPY}" = "1" ]; then
+        info "Clippy checks skipped (SKIP_CLIPPY=1)"
+        return 0
+    fi
+    
     which cargo > /dev/null || { info "Cargo not found for clippy"; return 0; }
     cargo clippy -- --deny warnings || die "cargo clippy failed"
     cargo clippy --tests -- --deny warnings || die "cargo clippy --tests failed"

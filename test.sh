@@ -148,6 +148,29 @@ stop_periodic_capture() {
     fi
 }
 
+# Function to ensure Rust components are installed
+ensure_rust_components() {
+    echo -e "${YELLOW}Vérification des composants Rust nécessaires...${NC}"
+    
+    # Vérifier si clippy est installé
+    if ! rustup component list --installed | grep -q clippy; then
+        echo -e "${YELLOW}Installation de clippy...${NC}"
+        rustup component add clippy || {
+            echo -e "${YELLOW}Tentative d'installation de clippy via cargo...${NC}"
+            cargo install clippy || {
+                echo -e "${RED}Impossible d'installer clippy. Les tests peuvent échouer.${NC}"
+                echo -e "${YELLOW}Les tests continueront sans vérification clippy.${NC}"
+                # Créer une variable d'environnement pour désactiver clippy
+                export SKIP_CLIPPY=1
+            }
+        }
+    else
+        echo -e "${GREEN}Clippy est déjà installé.${NC}"
+    fi
+    
+    echo -e "${GREEN}Configuration Rust terminée.${NC}"
+}
+
 # Function to run tests locally
 run_local_tests() {
     echo -e "${GREEN}=== RUNNING LOCAL TESTS ===${NC}"
@@ -156,6 +179,10 @@ run_local_tests() {
     echo -e "${YELLOW}Building the project...${NC}"
     which cargo
     echo "PATH=$PATH"
+    
+    # Ensure Rust components are installed
+    ensure_rust_components
+    
     /usr/local/cargo/bin/cargo build || cargo build
     
     # Set environment variables
