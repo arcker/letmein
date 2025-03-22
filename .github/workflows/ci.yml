@@ -52,7 +52,7 @@ jobs:
             openssl
         shell: sh
       
-      - name: Diagnostics
+      - name: Run tests
         run: |
           pwd
           ls -la
@@ -68,17 +68,8 @@ jobs:
           echo "Testing nftables permissions:"
           nft list tables || echo "Cannot list nftables tables"
           nft add table inet filter || echo "Cannot add nftables table"
+          ./test.sh --ci knock close
         shell: sh
-
-      - name: Run tests
-        run: |
-          echo "Exécution avec bash explicitement:"
-          export SKIP_CLIPPY=1
-          /bin/bash ./test.sh --ci knock close || /usr/bin/bash ./test.sh --ci knock close
-        shell: sh
-        env:
-          PATH: "/usr/local/cargo/bin:$PATH"
-          CARGO_HOME: "/usr/local/cargo"
 
 
 
