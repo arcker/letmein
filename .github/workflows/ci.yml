@@ -20,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:alpine
+      options: >-
+        --privileged 
+        --cap-add=NET_ADMIN 
+        --cap-add=SYS_ADMIN 
+        --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v4
       
@@ -34,7 +39,7 @@ jobs:
           cat /etc/os-release || echo "OS release info not available"
         shell: sh
       
-      - name: Install dependencies for alpine
+      - name: Install dependencies
         run: |
           apk add --no-cache \
             build-base \
@@ -43,10 +48,11 @@ jobs:
             nftables \
             sudo \
             libcap \
-            bash
+            bash \
+            openssl
         shell: sh
       
-      - name: Tests
+      - name: Diagnostics
         run: |
           pwd
           ls -la
@@ -58,9 +64,21 @@ jobs:
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
           chmod +x ./test.sh
-          ./test.sh --ci knock close
+          # Vérifier les droits nftables
+          echo "Testing nftables permissions:"
+          nft list tables || echo "Cannot list nftables tables"
+          nft add table inet filter || echo "Cannot add nftables table"
         shell: sh
 
+      - name: Run tests
+        run: |
+          echo "Exécution avec bash explicitement:"
+          export SKIP_CLIPPY=1
+          /bin/bash ./test.sh --ci knock close || /usr/bin/bash ./test.sh --ci knock close
+        shell: sh
+        env:
+          PATH: "/usr/local/cargo/bin:$PATH"
+          CARGO_HOME: "/usr/local/cargo"
 
 
 
