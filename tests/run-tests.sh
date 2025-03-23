@@ -1,17 +1,38 @@
 #!/bin/sh
 # -*- coding: utf-8 -*-
+#
+# Copyright (C) 2024 Michael Büsch <m@bues.ch>
+#
+# Licensed under the Apache License version 2.0
+# or the MIT license, at your option.
+# SPDX-License-Identifier: Apache-2.0 OR MIT
 
-basedir="$(realpath "$0" | xargs dirname)"
-basedir="$basedir/.."
+set -e
+
+# Définir et exporter explicitement LETMEIN_DEBUG_NFTABLES
+export LETMEIN_DISABLE_SECCOMP=1
+export LETMEIN_DEBUG_NFTABLES=1
+
+# Ajouter un affichage pour s'assurer que la variable est définie
+echo "=== DEBUG: LETMEIN_DEBUG_NFTABLES=$LETMEIN_DEBUG_NFTABLES ==="
+
+current_dir="$(dirname "$0")"
+root_dir="$(realpath "${current_dir}/..")"
+target="${root_dir}/target/debug"
+conf="${current_dir}/conf/tcp.conf"
 
 info()
 {
-    echo "--- $*"
-    # En mode verbose, afficher plus de détails
-    if [ "$VERBOSE" = "1" ]; then
-        set -x
-    fi
+	echo
+	echo "--- $@"
+	# En mode verbose, afficher plus de détails
+	if [ "$VERBOSE" = "1" ]; then
+		set -x
+	fi
 }
+
+basedir="$(realpath "$0" | xargs dirname)"
+basedir="$basedir/.."
 
 # strace configuration
 # If DISABLE_STRACE is defined, don't use strace to avoid conflicts with seccomp
@@ -113,6 +134,18 @@ check_nftables()
     return 0
 }
 
+# Fonction pour afficher le ruleset nftables courant
+show_nft_ruleset()
+{
+    if [ "${LETMEIN_DEBUG_NFTABLES}" = "1" ]; then
+        echo
+        echo "=== AFFICHAGE DU RULESET NFTABLES ACTUEL ==="
+        nft list ruleset || echo "Erreur: impossible d'afficher le ruleset nftables"
+        echo "============================================"
+        echo
+    fi
+}
+
 # Check for the presence of an nftables rule for a specific address and port
 verify_nft_rule_exists()
 {
@@ -120,14 +153,16 @@ verify_nft_rule_exists()
     local port="$2"
     local proto="$3"
     
-    info "Checking nftables rule for $addr port $port/$proto..."
-
+    info "Checking nftables rule for $conf port $addr/$port..."
+    show_nft_ruleset
+    
     # 1. D'abord essayer avec letmeinfwd verify
-    local verify_result=0
+    local verify_result
     if "$target/letmeinfwd" --help | grep -q -- "--should-exist"; then
         # La nouvelle version avec --should-exist est supportée
         if "$target/letmeinfwd" --config "$conf" verify --address "$addr" --port "$port" --protocol "$proto" --should-exist=true; then
-            info "Rule found for $addr port $port/$proto"
+            # La règle existe, c'est un succès
+            info "Rule confirmed for $addr port $port/$proto"
             return 0
         else
             verify_result=1
@@ -180,7 +215,8 @@ verify_nft_rule_missing()
     local port="$2"
     local proto="$3"
     
-    info "Checking absence of nftables rule for $addr port $port/$proto..."
+    info "Checking absence of nftables rule for $conf port $addr/$port..."
+    show_nft_ruleset
 
     # 1. D'abord essayer avec letmeinfwd verify
     local verify_result=0
@@ -252,13 +288,14 @@ run_test_cycle()
     local ip_version="$2" # ipv4, ipv6, ou dual (les deux)
 
     info "Running complete test cycle: $test_type with $ip_version"
+    echo "Debug env: LETMEIN_DEBUG_NFTABLES=$LETMEIN_DEBUG_NFTABLES"
 
     rm -rf "$rundir"
     local conf="$testdir/conf/$test_type.conf"
 
-    # Démarrer les services
+    # Démarrer les services avec transmission explicite des variables d'environnement
     info "Starting letmeinfwd..."
-    "$target/letmeinfwd" \
+    LETMEIN_DEBUG_NFTABLES=1 "$target/letmeinfwd" \
         --test-mode \
         --no-systemd \
         --rundir "$rundir" \
@@ -401,6 +438,7 @@ run_close_test_cycle()
     local ip_version="$2" # ipv4, ipv6, ou dual (les deux)
 
     info "Running close test cycle: $test_type with $ip_version"
+    echo "Debug env: LETMEIN_DEBUG_NFTABLES=$LETMEIN_DEBUG_NFTABLES"
 
     rm -rf "$rundir"
     local conf="$testdir/conf/$test_type.conf"
@@ -424,9 +462,9 @@ run_close_test_cycle()
             ;;
     esac
 
-    # Démarrer les services
+    # Démarrer les services avec transmission explicite des variables d'environnement
     info "Starting letmeinfwd..."
-    "$target/letmeinfwd" \
+    LETMEIN_DEBUG_NFTABLES=1 "$target/letmeinfwd" \
         --test-mode \
         --no-systemd \
         --rundir "$rundir" \
@@ -549,6 +587,9 @@ kill_letmeind()
 
 cleanup()
 {
+    # Réafficher la variable d'environnement avant le nettoyage
+    echo "Cleaning up with LETMEIN_DEBUG_NFTABLES=$LETMEIN_DEBUG_NFTABLES"
+    
     kill_all
     if [ -n "$tmpdir" ]; then
         rm -rf "$tmpdir"
@@ -639,12 +680,15 @@ target="$basedir/target/debug"
 testdir="$basedir/tests"
 stubdir="$testdir/stubs"
 
+# Réexporter les variables d'environnement cruciales
+export LETMEIN_DEBUG_NFTABLES=1
 export PATH="$target:$PATH"
 
 trap cleanup_and_exit INT TERM
 trap cleanup EXIT
 
 info "Temporary directory is: $tmpdir"
+info "LETMEIN_DEBUG_NFTABLES=$LETMEIN_DEBUG_NFTABLES"
 
 # Utilisation systématique des vraies nftables
 info "Mode réel nftables activé"

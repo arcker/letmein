@@ -22,6 +22,7 @@ WITH_GEN_KEY=""            # Whether to include gen-key test
 RUN_TESTS=()               # Tests to run
 LOG_DIR="$(pwd)/nft-logs"  # Directory for nftables logs
 SESSION_ID="$(date +%Y%m%d-%H%M%S)"
+LETMEIN_DEBUG_NFTABLES="1"
 
 # Detect if we're running in CI
 detect_environment() {

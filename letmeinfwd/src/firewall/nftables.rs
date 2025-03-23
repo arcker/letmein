@@ -129,6 +129,7 @@ fn statement_accept<'a>() -> Statement<'a> {
 
 /// Comment string for a `Rule`.
 /// It can be used as unique identifier for lease rules.
+/// Format: "{addr}/{port}/accept/letmein/GENERATED" or "any/{port}/accept/letmein/GENERATED"
 fn gen_rule_comment(addr: Option<IpAddr>, port: SingleLeasePort) -> ah::Result<String> {
     let mut comment = String::with_capacity(256);
     if let Some(addr) = addr {
@@ -137,6 +138,12 @@ fn gen_rule_comment(addr: Option<IpAddr>, port: SingleLeasePort) -> ah::Result<S
         write!(&mut comment, "any/")?;
     }
     write!(&mut comment, "{port}/accept/letmein/GENERATED")?;
+    
+    // Si debug est activé, afficher le commentaire généré
+    if env::var("LETMEIN_DEBUG_NFTABLES").unwrap_or_else(|_| String::from("0")) == "1" {
+        eprintln!("firewall: Generated rule comment: '{}'", comment);
+    }
+    
     Ok(comment)
 }
 
@@ -161,7 +168,13 @@ fn gen_add_lease_cmd(
         expr: Cow::Owned(expr),
         ..Default::default()
     };
-    rule.comment = Some(Cow::Owned(gen_rule_comment(addr, port)?));
+    
+    let comment = gen_rule_comment(addr, port)?;
+    if conf.debug() || env::var("LETMEIN_DEBUG_NFTABLES").unwrap_or_else(|_| String::from("0")) == "1" {
+        eprintln!("firewall: Adding rule with comment: '{}'", comment);
+    }
+    
+    rule.comment = Some(Cow::Owned(comment));
     Ok(NfCmd::Add(NfListObject::Rule(rule)))
 }
 
