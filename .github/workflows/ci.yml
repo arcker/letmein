@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:alpine
-      options: --privileged
+      options: --privileged --dns=8.8.8.8 --dns=8.8.4.4
     steps:
       - uses: actions/checkout@v4
       
@@ -51,20 +51,18 @@ jobs:
       - name: Initialize nftables environment
         run: |
           echo "Initializing nftables environment..."
-          # Vérifier que le module nftables est chargé
-          lsmod | grep nf_tables || echo "nf_tables module not loaded"
+          # Utilisez exactement la même initialisation que dans le script de test
+          # Tiré de la fonction initialize_nftables() dans tests/run-tests.sh
+          echo "Création de la table inet filter et de la chaîne LETMEIN-INPUT"
           
-          # Initialiser les tables et chaînes nécessaires
-          nft flush ruleset || echo "Failed to flush ruleset"
+          # Créer la table de base
+          nft -e add table inet filter 2>/dev/null || true
           
-          # Créer la table et les chaînes de base
-          nft add table inet filter || echo "Failed to create filter table"
-          nft add chain inet filter input { type filter hook input priority 0 \; } || echo "Failed to create input chain"
-          nft add chain inet filter LETMEIN-INPUT || echo "Failed to create LETMEIN-INPUT chain"
-          nft add rule inet filter input jump LETMEIN-INPUT || echo "Failed to add jump rule"
+          # Créer la chaîne LETMEIN-INPUT utilisée dans la configuration
+          nft -e add chain inet filter LETMEIN-INPUT { type filter hook input priority 100\; policy accept\; } 2>/dev/null || true
           
-          # Afficher la configuration nftables initiale
-          echo "Initial nftables configuration:"
+          # Afficher la configuration nftables actuelle
+          echo "Configuration nftables actuelle:"
           nft list ruleset
         shell: sh
       
@@ -80,6 +78,9 @@ jobs:
           file ./test.sh || echo "Cannot determine file type"
           head -n 1 ./test.sh || echo "Cannot read file"
           chmod +x ./test.sh
+          
+          # S'assurer que les scripts de test sont exécutables
+          chmod +x ./tests/run-tests.sh
           
           # Exporter SKIP_CLIPPY pour éviter les problèmes de clippy
           export SKIP_CLIPPY=1
