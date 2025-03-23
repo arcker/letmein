@@ -140,7 +140,34 @@ show_nft_ruleset()
     if [ "${LETMEIN_DEBUG_NFTABLES}" = "1" ]; then
         echo
         echo "=== AFFICHAGE DU RULESET NFTABLES ACTUEL ==="
-        nft list ruleset || echo "Erreur: impossible d'afficher le ruleset nftables"
+        echo "Environnement: $(uname -a)"
+        echo "PATH: $PATH"
+        echo "Utilisateur: $(whoami)"
+        
+        # D'abord essayer d'utiliser letmeinfwd dump-ruleset
+        echo "Tentative d'affichage via letmeinfwd dump-ruleset..."
+        if "$target/letmeinfwd" --help | grep -q "dump-ruleset"; then
+            echo "La commande dump-ruleset est disponible, utilisation..."
+            "$target/letmeinfwd" --config "$conf" dump-ruleset || echo "Erreur lors de l'exécution de dump-ruleset"
+        else
+            echo "La commande dump-ruleset n'est pas disponible dans cette version"
+        fi
+        
+        # Essayer ensuite sans sudo
+        echo "Tentative d'affichage via nft list ruleset..."
+        if nft list ruleset 2>/dev/null; then
+            echo "Ruleset affiché avec succès via nft"
+        # Sinon essayer avec sudo
+        elif sudo nft list ruleset 2>/dev/null; then
+            echo "Ruleset affiché avec succès via sudo nft"
+        # Si les deux échouent, afficher une erreur
+        else
+            echo "Erreur: impossible d'afficher le ruleset nftables (ni avec nft, ni avec sudo nft)"
+            echo "Vérifiez que nftables est installé et accessible."
+            # Afficher si les commandes sont disponibles
+            which nft && echo "nft est disponible à: $(which nft)"
+            which sudo && echo "sudo est disponible à: $(which sudo)"
+        fi
         echo "============================================"
         echo
     fi

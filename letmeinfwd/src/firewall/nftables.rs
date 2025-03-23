@@ -642,4 +642,46 @@ impl FirewallOpen for NftFirewall {
     }
 }
 
+/// Dump current nftables ruleset for debugging purposes.
+/// This function is used by the dump-ruleset command.
+pub async fn dump_nftables_ruleset(_conf: &Config) -> ah::Result<()> {
+    println!("firewall: Retrieving and displaying current nftables ruleset...");
+    
+    // Forcer l'affichage du debug
+    println!("firewall: Debug output enabled for ruleset dump");
+    
+    // Get ruleset using the nftables crate
+    match get_current_ruleset_with_args_async(
+        None::<&str>, // Use default nft executable from crate
+        DEFAULT_ARGS,
+    ).await {
+        Ok(ruleset) => {
+            println!("firewall: Retrieved {} objects from kernel", ruleset.objects.len());
+            
+            // Afficher les détails de chaque objet
+            println!("firewall: Detailed nftables ruleset objects:");
+            for (i, obj) in ruleset.objects.iter().enumerate() {
+                match obj {
+                    NfObject::ListObject(NfListObject::Rule(rule)) => {
+                        println!("  Rule[{}]: {:?}", i, rule);
+                    },
+                    NfObject::ListObject(NfListObject::Table(table)) => {
+                        println!("  Table[{}]: {:?}", i, table);
+                    },
+                    NfObject::ListObject(NfListObject::Chain(chain)) => {
+                        println!("  Chain[{}]: {:?}", i, chain);
+                    },
+                    _ => println!("  Other[{}]: {:?}", i, obj),
+                }
+            }
+            
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("firewall: Error retrieving ruleset: {:?}", e);
+            Err(e.into())
+        }
+    }
+}
+
 // vim: ts=4 sw=4 expandtab

@@ -158,25 +158,26 @@ struct Opts {
 
 /// Subcommands for letmeinfwd
 #[derive(Debug, Clone, Subcommand)]
-enum Commands {
-    /// Verify if a firewall rule exists for testing
+pub enum Commands {
+    /// Verify if an nftables rule exists or is missing.
+    #[clap(name = "verify")]
     Verify {
-        /// IP address to check
-        #[arg(long)]
+        /// The address to check in the rule.
+        #[clap(long)]
         address: String,
-        
-        /// Port to check
-        #[arg(long)]
+        /// The port to check in the rule.
+        #[clap(long)]
         port: u16,
-        
-        /// Protocol (tcp/udp)
-        #[arg(long, default_value = "tcp")]
+        /// The protocol to check in the rule.
+        #[clap(long)]
         protocol: String,
-        
-        /// Check if rule should exist (true) or be missing (false)
-        #[arg(long)]
+        /// Whether the rule should exist or be missing.
+        #[clap(long)]
         should_exist: bool,
-    }
+    },
+    /// Dump current nftables ruleset for debugging
+    #[clap(name = "dump-ruleset")]
+    DumpRuleset,
 }
 
 impl Opts {
@@ -340,41 +341,74 @@ fn main() -> ah::Result<()> {
     }
     
     // Process verify command if specified
-    if let Some(Commands::Verify { address, port, protocol, should_exist }) = &opts.command {
-        // Read the configuration file
-        let mut conf = Config::new(ConfigVariant::Server);
-        conf.load(&opts.get_config())
-            .context("Configuration file")?;
-        
-        // Call the verification function
-        let result = runtime::Builder::new_current_thread()
-            .thread_keep_alive(Duration::from_millis(0))
-            .max_blocking_threads(1)
-            .enable_all()
-            .build()
-            .context("Tokio runtime builder")?
-            .block_on(crate::verify::verify_nft_rule(
-                &conf,
-                address,
-                *port,
-                protocol,
-                *should_exist
-            ));
-            
-        match result {
-            Ok(true) => {
-                println!("Verification successful: rule {} found as expected", 
-                    if *should_exist { "was" } else { "was not" });
-                return Ok(());
+    if let Some(cmd) = &opts.command {
+        match cmd {
+            Commands::Verify { address, port, protocol, should_exist } => {
+                // Read the configuration file
+                let mut conf = Config::new(ConfigVariant::Server);
+                conf.load(&opts.get_config())
+                    .context("Configuration file")?;
+                
+                // Call the verification function
+                let result = runtime::Builder::new_current_thread()
+                    .thread_keep_alive(Duration::from_millis(0))
+                    .max_blocking_threads(1)
+                    .enable_all()
+                    .build()
+                    .context("Tokio runtime builder")?
+                    .block_on(crate::verify::verify_nft_rule(
+                        &conf,
+                        address,
+                        *port,
+                        protocol,
+                        *should_exist
+                    ));
+                    
+                match result {
+                    Ok(true) => {
+                        println!("Verification successful: rule {} found as expected", 
+                            if *should_exist { "was" } else { "was not" });
+                        return Ok(());
+                    },
+                    Ok(false) => {
+                        eprintln!("Verification failed: rule {} found, which was not expected", 
+                            if *should_exist { "was not" } else { "was" });
+                        std::process::exit(1);
+                    },
+                    Err(e) => {
+                        eprintln!("Error during verification: {}", e);
+                        std::process::exit(1);
+                    }
+                }
             },
-            Ok(false) => {
-                eprintln!("Verification failed: rule {} found, which was not expected", 
-                    if *should_exist { "was not" } else { "was" });
-                std::process::exit(1);
-            },
-            Err(e) => {
-                eprintln!("Error during verification: {}", e);
-                std::process::exit(1);
+            Commands::DumpRuleset => {
+                // Read the configuration file
+                let mut conf = Config::new(ConfigVariant::Server);
+                conf.load(&opts.get_config())
+                    .context("Configuration file")?;
+                
+                // Configurer une variable d'environnement temporaire pour le debug
+                std::env::set_var("LETMEIN_DEBUG_NFTABLES", "1");
+                
+                // Call the public dump_nftables_ruleset function
+                let result = runtime::Builder::new_current_thread()
+                    .thread_keep_alive(Duration::from_millis(0))
+                    .max_blocking_threads(1)
+                    .enable_all()
+                    .build()
+                    .context("Tokio runtime builder")?
+                    .block_on(crate::firewall::nftables::dump_nftables_ruleset(&conf));
+                
+                match result {
+                    Ok(_) => {
+                        println!("Ruleset dump complete.");
+                        return Ok(());
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to dump ruleset: {}", e);
+                        std::process::exit(1);
+                    }
+                }
             }
         }
     }
