@@ -52,18 +52,18 @@ jobs:
       - name: Initialize nftables environment
         run: |
           echo "Initializing nftables environment..."
-          # Utilisez exactement la même initialisation que dans le script de test
-          # Tiré de la fonction initialize_nftables() dans tests/run-tests.sh
-          echo "Création de la table inet filter et de la chaîne LETMEIN-INPUT"
+          # Use exactly the same initialization as in the test script
+          # Taken from the initialize_nftables() function in tests/run-tests.sh
+          echo "Creating inet filter table and LETMEIN-INPUT chain"
           
-          # Créer la table de base
+          # Create the base table
           nft -e add table inet filter 2>/dev/null || true
           
-          # Créer la chaîne LETMEIN-INPUT utilisée dans la configuration
+          # Create the LETMEIN-INPUT chain used in the configuration
           nft -e add chain inet filter LETMEIN-INPUT { type filter hook input priority 100\; policy accept\; } 2>/dev/null || true
           
-          # Afficher la configuration nftables actuelle
-          echo "Configuration nftables actuelle:"
+          # Display the current nftables configuration
+          echo "Current nftables configuration:"
           nft list ruleset
         shell: sh
       
@@ -74,20 +74,20 @@ jobs:
           echo "Current directory contents:"
           ls -la .
           echo "Script permissions:"
-          [ -f "./test.sh" ] && echo "File exists" || echo "File does not exist"
-          [ -x "./test.sh" ] && echo "File is executable" || echo "File is not executable"
-          file ./test.sh || echo "Cannot determine file type"
-          head -n 1 ./test.sh || echo "Cannot read file"
-          chmod +x ./test.sh
+          [ -f "./tests/test.sh" ] && echo "File exists" || echo "File does not exist"
+          [ -x "./tests/test.sh" ] && echo "File is executable" || echo "File is not executable"
+          file ./tests/test.sh || echo "Cannot determine file type"
+          head -n 1 ./tests/test.sh || echo "Cannot read file"
+          chmod +x ./tests/test.sh
           
-          # S'assurer que les scripts de test sont exécutables
+          # Make sure test scripts are executable
           chmod +x ./tests/run-tests.sh
           
-          # Exporter SKIP_CLIPPY pour éviter les problèmes de clippy
+          # Export SKIP_CLIPPY to avoid clippy issues
           export SKIP_CLIPPY=1
           
-          # Exécuter les tests
-          ./test.sh --ci knock close
+          # Run the tests
+          ./tests/test.sh --ci knock close
         shell: sh
 
 
