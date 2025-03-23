@@ -20,11 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:alpine
-      options: >-
-        --privileged 
-        --cap-add=NET_ADMIN 
-        --cap-add=SYS_ADMIN 
-        --security-opt seccomp=unconfined
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
       
