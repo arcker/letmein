@@ -180,7 +180,7 @@ verify_nft_rule_exists()
     local port="$2"
     local proto="$3"
     
-    info "Checking nftables rule for $conf port $addr/$port..."
+    info "Checking nftables rule for address $addr port $port/$proto..."
     show_nft_ruleset
     
     # 1. D'abord essayer avec letmeinfwd verify
@@ -242,7 +242,7 @@ verify_nft_rule_missing()
     local port="$2"
     local proto="$3"
     
-    info "Checking absence of nftables rule for $conf port $addr/$port..."
+    info "Checking absence of nftables rule for address $addr port $port/$proto..."
     show_nft_ruleset
 
     # 1. D'abord essayer avec letmeinfwd verify

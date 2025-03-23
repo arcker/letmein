@@ -274,10 +274,19 @@ pub async fn verify_nft_rule(
                 true
             } else {
                 eprintln!("=== ERROR: nftables rule not found for {} port {}/{}", addr_str, port, proto);
-                // Print additional debug info
-                if let Some(ipv4) = alt_addr_str {
+                // Print additional debug info with exact formats
+                eprintln!("  Looking for rule with comment formats:");
+                eprintln!("  - verify.rs: \"{}\"", comment_verify);
+                eprintln!("  - nftables.rs: \"{}\"", comment_nftables);
+                if let Some(alt) = alt_addr_str {
                     eprintln!("  Note: This address might be an IPv4-mapped IPv6 address.");
-                    eprintln!("  Alternative address format: {}", ipv4);
+                    eprintln!("  Alternative address format: {}", alt);
+                    if let Some(alt_verify) = &alt_comment_verify {
+                        eprintln!("  - alt verify.rs: \"{}\"", alt_verify);
+                    }
+                    if let Some(alt_nftables) = &alt_comment_nftables {
+                        eprintln!("  - alt nftables.rs: \"{}\"", alt_nftables);
+                    }
                 }
                 false
             }
