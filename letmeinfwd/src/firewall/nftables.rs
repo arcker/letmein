@@ -6,6 +6,8 @@
 // or the MIT license, at your option.
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Nftables firewall backend.
+
 use crate::firewall::{
     prune_all_lease_timeouts, FirewallMaintain, FirewallOpen, Lease, LeaseMap, LeasePort,
     SingleLeasePort,
@@ -20,7 +22,12 @@ use nftables::{
     stmt::{Match, Operator, Statement},
     types::NfFamily,
 };
-use std::{borrow::Cow, fmt::Write as _, net::IpAddr};
+use std::{
+    borrow::Cow,
+    env,
+    fmt::Write as _,
+    net::IpAddr,
+};
 
 struct NftNames<'a> {
     family: NfFamily,
@@ -122,6 +129,7 @@ fn statement_accept<'a>() -> Statement<'a> {
 
 /// Comment string for a `Rule`.
 /// It can be used as unique identifier for lease rules.
+/// Format: "{addr}/{port}/accept/letmein/GENERATED" or "any/{port}/accept/letmein/GENERATED"
 fn gen_rule_comment(addr: Option<IpAddr>, port: SingleLeasePort) -> ah::Result<String> {
     let mut comment = String::with_capacity(256);
     if let Some(addr) = addr {
@@ -130,6 +138,12 @@ fn gen_rule_comment(addr: Option<IpAddr>, port: SingleLeasePort) -> ah::Result<S
         write!(&mut comment, "any/")?;
     }
     write!(&mut comment, "{port}/accept/letmein/GENERATED")?;
+    
+    // Si debug est activé, afficher le commentaire généré
+    if env::var("LETMEIN_DEBUG_NFTABLES").unwrap_or_else(|_| String::from("0")) == "1" {
+        eprintln!("firewall: Generated rule comment: '{}'", comment);
+    }
+    
     Ok(comment)
 }
 
@@ -154,7 +168,13 @@ fn gen_add_lease_cmd(
         expr: Cow::Owned(expr),
         ..Default::default()
     };
-    rule.comment = Some(Cow::Owned(gen_rule_comment(addr, port)?));
+    
+    let comment = gen_rule_comment(addr, port)?;
+    if conf.debug() || env::var("LETMEIN_DEBUG_NFTABLES").unwrap_or_else(|_| String::from("0")) == "1" {
+        eprintln!("firewall: Adding rule with comment: '{}'", comment);
+    }
+    
+    rule.comment = Some(Cow::Owned(comment));
     Ok(NfCmd::Add(NfListObject::Rule(rule)))
 }
 
@@ -187,37 +207,38 @@ struct ListedRuleset<'a> {
 
 impl ListedRuleset<'_> {
     /// Get the active ruleset from the kernel.
-    pub async fn from_kernel(conf: &Config) -> ah::Result<Self> {
+    pub async fn from_kernel(_conf: &Config) -> ah::Result<Self> {
         println!("firewall: Retrieving current ruleset from kernel...");
-        println!("firewall: Using nft executable: {}", conf.nft_exe().display());
+        println!("firewall: Using default nft executable from nftables crate");
         println!("firewall: Using args: {:?}", DEFAULT_ARGS);
         
-        // Try to execute manually first for debugging
-        use std::process::Command;
-        let output = Command::new(conf.nft_exe())
-            .arg("list")
-            .arg("ruleset")
-            .output();
-            
-        match output {
-            Ok(out) => {
-                println!("firewall: Manual nft list ruleset result:");
-                println!("  Status: {}", out.status);
-                println!("  stdout: {}", String::from_utf8_lossy(&out.stdout));
-                println!("  stderr: {}", String::from_utf8_lossy(&out.stderr));
-            },
-            Err(e) => {
-                println!("firewall: Manual nft command error: {}", e);
-            }
-        }
-        
-        // Now try with the library function
+        // Get ruleset using the nftables crate
         match get_current_ruleset_with_args_async(
-            Some(conf.nft_exe()), // program
-            DEFAULT_ARGS,         // args
+            None::<&str>, // Use default nft executable from crate
+            DEFAULT_ARGS,
         ).await {
             Ok(ruleset) => {
                 println!("firewall: Retrieved {} objects from kernel", ruleset.objects.len());
+                
+                // Si une variable d'environnement de debug est définie, afficher plus d'informations
+                if env::var("LETMEIN_DEBUG_NFTABLES").unwrap_or_else(|_| String::from("0")) == "1" {
+                    println!("firewall: Debug nftables ruleset objects:");
+                    for (i, obj) in ruleset.objects.iter().enumerate() {
+                        match obj {
+                            NfObject::ListObject(NfListObject::Rule(rule)) => {
+                                println!("  Rule[{}]: {:?}", i, rule);
+                            },
+                            NfObject::ListObject(NfListObject::Table(table)) => {
+                                println!("  Table[{}]: {:?}", i, table);
+                            },
+                            NfObject::ListObject(NfListObject::Chain(chain)) => {
+                                println!("  Chain[{}]: {:?}", i, chain);
+                            },
+                            _ => println!("  Other[{}]: {:?}", i, obj),
+                        }
+                    }
+                }
+                
                 Ok(Self {
                     objs: ruleset.objects,
                 })
@@ -363,17 +384,22 @@ impl NftFirewall {
     /// Create a new firewall handler instance.
     /// This will also remove all rules from the kernel.
     pub async fn new(conf: &Config) -> ah::Result<Self> {
-        // Test if the `nft` binary is available.
-        if let Err(e) = std::process::Command::new(conf.nft_exe())
-            .args(["--help"])
-            .output()
-        {
-            return Err(err!(
-                "Failed to execute the 'nft' program.\n\
-                Did you install the 'nftables' support package in your distribution's package manager?\n\
-                Is the 'nft' binary available in the $PATH?\n\
-                The execution error was: {e}"
-            ));
+        // Test if the nftables crate can communicate with kernel
+        match get_current_ruleset_with_args_async(
+            None::<&str>,
+            DEFAULT_ARGS,
+        ).await {
+            Ok(_) => {
+                // nftables is available and working
+            },
+            Err(e) => {
+                return Err(err!(
+                    "Failed to interact with nftables. Error from nftables crate:\n\
+                    {}\n\
+                    Did you install the 'nftables' support package in your distribution's package manager?\n\
+                    Is the 'nft' binary available in the $PATH?", e
+                ));
+            }
         }
 
         let mut this = Self {
@@ -405,12 +431,12 @@ impl NftFirewall {
     }
 
     /// Apply a rules batch to the kernel.
-    async fn nftables_apply_batch(&self, conf: &Config, batch: Batch<'_>) -> ah::Result<()> {
+    async fn nftables_apply_batch(&self, _conf: &Config, batch: Batch<'_>) -> ah::Result<()> {
         let ruleset = batch.to_nftables();
         apply_ruleset_with_args_async(
-            &ruleset,             // rules
-            Some(conf.nft_exe()), // program
-            DEFAULT_ARGS,         // args
+            &ruleset,         // rules
+            None::<&str>,     // program (use default from crate)
+            DEFAULT_ARGS,     // args
         )
         .await
         .context("Apply nftables")?;
@@ -613,6 +639,48 @@ impl FirewallOpen for NftFirewall {
             println!("firewall: Successfully removed rule directly from kernel for {remote_addr} port {port}");
         }
         Ok(())
+    }
+}
+
+/// Dump current nftables ruleset for debugging purposes.
+/// This function is used by the dump-ruleset command.
+pub async fn dump_nftables_ruleset(_conf: &Config) -> ah::Result<()> {
+    println!("firewall: Retrieving and displaying current nftables ruleset...");
+    
+    // Forcer l'affichage du debug
+    println!("firewall: Debug output enabled for ruleset dump");
+    
+    // Get ruleset using the nftables crate
+    match get_current_ruleset_with_args_async(
+        None::<&str>, // Use default nft executable from crate
+        DEFAULT_ARGS,
+    ).await {
+        Ok(ruleset) => {
+            println!("firewall: Retrieved {} objects from kernel", ruleset.objects.len());
+            
+            // Afficher les détails de chaque objet
+            println!("firewall: Detailed nftables ruleset objects:");
+            for (i, obj) in ruleset.objects.iter().enumerate() {
+                match obj {
+                    NfObject::ListObject(NfListObject::Rule(rule)) => {
+                        println!("  Rule[{}]: {:?}", i, rule);
+                    },
+                    NfObject::ListObject(NfListObject::Table(table)) => {
+                        println!("  Table[{}]: {:?}", i, table);
+                    },
+                    NfObject::ListObject(NfListObject::Chain(chain)) => {
+                        println!("  Chain[{}]: {:?}", i, chain);
+                    },
+                    _ => println!("  Other[{}]: {:?}", i, obj),
+                }
+            }
+            
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("firewall: Error retrieving ruleset: {:?}", e);
+            Err(e.into())
+        }
     }
 }
 

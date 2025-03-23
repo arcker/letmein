@@ -24,41 +24,23 @@ RUN echo "ALL ALL=(ALL) NOPASSWD: /sbin/nft, /usr/bin/strace" >> /etc/sudoers
 RUN mkdir -p /etc/nftables /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd \
     && chmod 777 /run/letmeinfwd /run/letmeind /var/run/letmeind /var/run/letmeinfwd
 
-# Créer un fichier de configuration nftables minimal sans l'exécuter
-RUN echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf && \
-    echo 'flush ruleset' >> /etc/nftables/basic.conf && \
-    echo 'table inet filter {' >> /etc/nftables/basic.conf && \
-    echo '  chain input {' >> /etc/nftables/basic.conf && \
-    echo '    type filter hook input priority 0; policy accept;' >> /etc/nftables/basic.conf && \
-    echo '  }' >> /etc/nftables/basic.conf && \
-    echo '  chain forward {' >> /etc/nftables/basic.conf && \
-    echo '    type filter hook forward priority 0; policy accept;' >> /etc/nftables/basic.conf && \
-    echo '  }' >> /etc/nftables/basic.conf && \
-    echo '  chain output {' >> /etc/nftables/basic.conf && \
-    echo '    type filter hook output priority 0; policy accept;' >> /etc/nftables/basic.conf && \
-    echo '  }' >> /etc/nftables/basic.conf && \
-    echo '  chain LETMEIN-INPUT {' >> /etc/nftables/basic.conf && \
-    echo '    type filter hook input priority 100; policy accept;' >> /etc/nftables/basic.conf && \
-    echo '  }' >> /etc/nftables/basic.conf && \
-    echo '  chain LETMEIN-OUTPUT {' >> /etc/nftables/basic.conf && \
-    echo '    type filter hook output priority 100; policy accept;' >> /etc/nftables/basic.conf && \
-    echo '  }' >> /etc/nftables/basic.conf && \
-    echo '}' >> /etc/nftables/basic.conf && \
-    chmod +x /etc/nftables/basic.conf
+# # Créer un fichier de configuration nftables minimal (pour référence seulement)
+# RUN echo '#!/usr/sbin/nft -f' > /etc/nftables/basic.conf && \
+#     echo 'flush ruleset' >> /etc/nftables/basic.conf && \
+#     echo 'table inet filter {' >> /etc/nftables/basic.conf && \
+#     echo '  chain input { type filter hook input priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain forward { type filter hook forward priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain output { type filter hook output priority 0; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain LETMEIN-INPUT { type filter hook input priority 100; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '  chain LETMEIN-OUTPUT { type filter hook output priority 100; policy accept; }' >> /etc/nftables/basic.conf && \
+#     echo '}' >> /etc/nftables/basic.conf && \
+#     chmod +x /etc/nftables/basic.conf
 
 # Créer un script d'initialisation pour configurer l'environnement
 RUN echo '#!/bin/sh' > /init-env.sh && \
     echo '' >> /init-env.sh && \
-    echo '# Configurer l'"'"'environnement si MOCK_NFTABLES n'"'"'est pas activé' >> /init-env.sh && \
-    echo 'if [ "$MOCK_NFTABLES" != "1" ]; then' >> /init-env.sh && \
-    echo '  echo "Tentative d'"'"'initialisation de nftables..."' >> /init-env.sh && \
-    echo '  nft -f /etc/nftables/basic.conf || echo "Avertissement: Impossible d'"'"'initialiser nftables. Mode MOCK_NFTABLES recommandé."' >> /init-env.sh && \
-    echo 'fi' >> /init-env.sh && \
-    echo '' >> /init-env.sh
-
-# Afficher l'"'"'état de l'"'"'environnement
-RUN echo 'echo "=== Configuration de l'"'"'environnement ==="' >> /init-env.sh && \
-    echo 'echo "MOCK_NFTABLES: $MOCK_NFTABLES"' >> /init-env.sh && \
+    echo '# Afficher l'"'"'état de l'"'"'environnement' >> /init-env.sh && \
+    echo 'echo "=== Configuration de l'"'"'environnement ==="' >> /init-env.sh && \
     echo 'echo "LETMEIN_DISABLE_SECCOMP: $LETMEIN_DISABLE_SECCOMP"' >> /init-env.sh && \
     echo 'echo "==============================="' >> /init-env.sh && \
     echo '' >> /init-env.sh && \
