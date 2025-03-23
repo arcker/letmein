@@ -41,13 +41,24 @@ pub async fn verify_nft_rule(
         }
     };
 
-    // Also check for IPv4 mapped address if the address is an IPv6 address
-    // that starts with ::ffff:
-    let ipv4_mapped_addr = if let Some(ipv4_part) = addr_str.strip_prefix("::ffff:") {
-        eprintln!("Also checking for IPv4 mapped address: {}", ipv4_part);
-        Some(ipv4_part)
-    } else {
-        None
+    // Calculate alternative address form (IPv4 <-> IPv6 mapped)
+    let alt_addr_str = match addr {
+        IpAddr::V4(v4) => {
+            // Pour une adresse IPv4, format mappé IPv6
+            let ipv6_mapped = format!("::ffff:{}", v4);
+            eprintln!("Original IPv4, also checking IPv6-mapped: {}", ipv6_mapped);
+            Some(ipv6_mapped)
+        },
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                // Pour une adresse IPv6 mappée, format IPv4
+                let ipv4_str = v4.to_string();
+                eprintln!("Original IPv6-mapped, also checking IPv4: {}", ipv4_str);
+                Some(ipv4_str)
+            } else {
+                None
+            }
+        }
     };
 
     // Formats de commentaires possibles:
@@ -56,23 +67,25 @@ pub async fn verify_nft_rule(
     eprintln!("Looking for rule with comment format verify.rs: {}", comment_verify);
     
     // 2. Format nftables.rs: "{addr}/{port}/accept/letmein/GENERATED"
-    let single_port = match proto {
-        "tcp" => format!("tcp:{}", port),
-        "udp" => format!("udp:{}", port),
-        _ => format!("?:{}", port),
+    let port_str = match proto.to_lowercase().as_str() {
+        "tcp" => format!("{}/TCP", port),
+        "udp" => format!("{}/UDP", port),
+        _ => format!("{}/{}", port, proto.to_uppercase()),
     };
-    let comment_nftables = format!("{}/{}/accept/letmein/GENERATED", addr, single_port);
+    let comment_nftables = format!("{}/{}/accept/letmein/GENERATED", addr, port_str);
     eprintln!("Looking for rule with comment format nftables.rs: {}", comment_nftables);
     
-    // Alternative avec IPv4 mapped
-    let ipv4_comment = ipv4_mapped_addr.map(|ipv4| {
-        let alt_comment_verify = format!("letmein_{}-{}/{}", ipv4, port, proto);
-        let alt_comment_nftables = format!("{}/{}/accept/letmein/GENERATED", ipv4, single_port);
-        eprintln!("Or alternate comments for IPv4 mapped address:");
-        eprintln!("  - verify.rs format: {}", alt_comment_verify);
-        eprintln!("  - nftables.rs format: {}", alt_comment_nftables);
-        (alt_comment_verify, alt_comment_nftables)
-    });
+    // Alternative address versions
+    let (alt_comment_verify, alt_comment_nftables) = if let Some(alt_addr) = &alt_addr_str {
+        let verify = format!("letmein_{}-{}/{}", alt_addr, port, proto);
+        let nftables = format!("{}/{}/accept/letmein/GENERATED", alt_addr, port_str);
+        eprintln!("Or alternate comments for alternative address {}:", alt_addr);
+        eprintln!("  - verify.rs format: {}", verify);
+        eprintln!("  - nftables.rs format: {}", nftables);
+        (Some(verify), Some(nftables))
+    } else {
+        (None, None)
+    };
     
     // Debug logging for CI environment detection
     if let Ok(ci) = env::var("CI") {
@@ -116,11 +129,12 @@ pub async fn verify_nft_rule(
                     // Recherche de correspondances potentielles
                     let has_comment_verify = rule_str.contains(&comment_verify);
                     let has_comment_nftables = rule_str.contains(&comment_nftables);
-                    let has_ipv4_comment = ipv4_comment.as_ref().is_some_and(|(verify, nftables)| 
-                        rule_str.contains(verify) || rule_str.contains(nftables));
+                    let has_ipv4_comment = alt_comment_verify.as_ref().is_some_and(|verify| 
+                        rule_str.contains(verify)) || alt_comment_nftables.as_ref().is_some_and(|nftables| 
+                        rule_str.contains(nftables));
                     let has_port = rule_str.contains(&format!("dport {}", port));
                     let has_addr = rule_str.contains(&format!("{}", addr)) || 
-                                  ipv4_mapped_addr.as_ref().is_some_and(|ipv4| rule_str.contains(ipv4));
+                                  alt_addr_str.as_ref().is_some_and(|alt_addr| rule_str.contains(alt_addr));
                     
                     if has_comment_verify || has_comment_nftables || has_ipv4_comment || (has_port && has_addr) {
                         eprintln!("\x1b[1;32mPOTENTIAL MATCH: {:?}\x1b[0m", rule);
@@ -142,132 +156,107 @@ pub async fn verify_nft_rule(
     
     // Check for exact or IPv4 mapped rule (with relaxed matching in CI environment)
     let rule_exists = {
-        // First check for exact comment match (original address) - two possible formats
-        let exact_match = ruleset.objects.to_vec().iter().any(|obj| {
+        // First check for all possible comment formats
+        let rule_with_comment = ruleset.objects.to_vec().iter().any(|obj| {
             match obj {
                 NfObject::ListObject(NfListObject::Rule(rule)) => {
-                    let rule_str = format!("{:?}", rule);
-                    let matches_verify = rule_str.contains(&comment_verify);
-                    let matches_nftables = rule_str.contains(&comment_nftables);
-                    let matches = matches_verify || matches_nftables;
-                    
-                    if matches && (debug_nftables == "1" || env::var("CI").is_ok()) {
-                        if matches_verify {
-                            eprintln!("✓ MATCHED exact rule (verify.rs format): {:?}", rule);
+                    if let Some(comment) = &rule.comment {
+                        let comment_str = comment.to_string();
+                        
+                        // Test avec tous les formats de commentaires possibles
+                        let matches_verify = comment_str.contains(&comment_verify);
+                        let matches_nftables = comment_str.contains(&comment_nftables);
+                        
+                        // Test avec les formats alternatifs (IPv4/IPv6 mappé)
+                        let matches_alt_verify = alt_comment_verify.as_ref()
+                            .map(|c| comment_str.contains(c))
+                            .unwrap_or(false);
+                        let matches_alt_nftables = alt_comment_nftables.as_ref()
+                            .map(|c| comment_str.contains(c))
+                            .unwrap_or(false);
+                        
+                        // Test avec la partie unique du commentaire (port/protocol combo)
+                        let contains_port_proto = comment_str.contains(&format!("{}/{}", port, proto.to_uppercase())) || 
+                                                 comment_str.contains(&format!("{}/{}", port, proto));
+                        
+                        let matches = matches_verify || matches_nftables || 
+                                     matches_alt_verify || matches_alt_nftables || 
+                                     contains_port_proto;
+                        
+                        // Combiner les conditions pour éviter l'erreur clippy
+                        if (debug_nftables == "1" || env::var("CI").is_ok()) && matches {
+                            eprintln!("\x1b[1;32mMATCHED RULE BY COMMENT: {:?}\x1b[0m", rule);
+                            if matches_verify {
+                                eprintln!("  - Matched verify.rs format: {}", comment_verify);
+                            }
+                            if matches_nftables {
+                                eprintln!("  - Matched nftables.rs format: {}", comment_nftables);
+                            }
+                            if matches_alt_verify {
+                                eprintln!("  - Matched alternative verify.rs format");
+                            }
+                            if matches_alt_nftables {
+                                eprintln!("  - Matched alternative nftables.rs format");
+                            }
+                            if contains_port_proto {
+                                eprintln!("  - Matched by port/protocol combination");
+                            }
                         }
-                        if matches_nftables {
-                            eprintln!("✓ MATCHED exact rule (nftables.rs format): {:?}", rule);
-                        }
+                        
+                        matches
+                    } else {
+                        false
                     }
-                    matches
                 },
                 _ => false
             }
         });
         
-        if exact_match {
+        if rule_with_comment {
             true
-        }
-        // If no match and we have an IPv4 mapped address, try the IPv4 comment
-        else if let Some((ipv4_comment_verify, ipv4_comment_nftables)) = &ipv4_comment {
-            let ipv4_match = ruleset.objects.to_vec().iter().any(|obj| {
-                match obj {
-                    NfObject::ListObject(NfListObject::Rule(rule)) => {
-                        let rule_str = format!("{:?}", rule);
-                        let matches_verify = rule_str.contains(ipv4_comment_verify);
-                        let matches_nftables = rule_str.contains(ipv4_comment_nftables);
-                        let matches = matches_verify || matches_nftables;
-                        
-                        if matches && (debug_nftables == "1" || env::var("CI").is_ok()) {
-                            if matches_verify {
-                                eprintln!("✓ MATCHED IPv4 mapped rule (verify.rs format): {:?}", rule);
-                            }
-                            if matches_nftables {
-                                eprintln!("✓ MATCHED IPv4 mapped rule (nftables.rs format): {:?}", rule);
-                            }
-                        }
-                        matches
-                    },
-                    _ => false
-                }
-            });
-            
-            if ipv4_match {
-                true
-            }
-            // If still no match and we're in CI, make a more relaxed check for port/addr
-            else if env::var("CI").is_ok() {
-                eprintln!("In CI environment, using relaxed matching for port and address");
-                
-                // Get IPv4 address for comparison if we have an IPv4-mapped IPv6 address
-                let ipv4_for_comparison = addr_str.strip_prefix("::ffff:");
-                
-                ruleset.objects.to_vec().iter().any(|obj| {
-                    match obj {
-                        NfObject::ListObject(NfListObject::Rule(rule)) => {
-                            let rule_str = format!("{:?}", rule);
-                            
-                            // Check if the rule contains both the port and either address format
-                            let has_port = rule_str.contains(&format!("dport {}", port));
-                            let has_addr = rule_str.contains(&format!("{}", addr)) || 
-                                          ipv4_for_comparison.is_some_and(|ipv4| rule_str.contains(ipv4));
-                            
-                            let matches = has_port && has_addr;
-                            
-                            if debug_nftables == "1" || env::var("CI").is_ok() {
-                                if has_port {
-                                    eprintln!("Rule with matching port: {:?}", rule);
-                                }
-                                
-                                if has_addr {
-                                    eprintln!("Rule with matching address: {:?}", rule);
-                                }
-                                
-                                if matches {
-                                    eprintln!("✓ MATCHED by relaxed criteria: {:?}", rule);
-                                }
-                            }
-                            
-                            matches
-                        },
-                        _ => false
-                    }
-                })
-            } else {
-                false
-            }
-        }
-        // If still no match and we're in CI, make a more relaxed check for port/addr
-        else if env::var("CI").is_ok() {
-            eprintln!("In CI environment, using relaxed matching for port and address");
-            
-            // Get IPv4 address for comparison if we have an IPv4-mapped IPv6 address
-            let ipv4_for_comparison = addr_str.strip_prefix("::ffff:");
+        } else {
+            // Si aucun commentaire correspondant, utiliser une approche plus flexible basée sur le contenu de la règle
+            eprintln!("No matching rule found by comment, checking rule content...");
             
             ruleset.objects.to_vec().iter().any(|obj| {
                 match obj {
                     NfObject::ListObject(NfListObject::Rule(rule)) => {
                         let rule_str = format!("{:?}", rule);
                         
-                        // Check if the rule contains both the port and either address format
+                        // 1. Vérifier si la règle contient l'adresse IP (sous forme originale ou mappée)
+                        let has_original_addr = rule_str.contains(&format!("saddr {}", addr));
+                        let has_alt_addr = alt_addr_str.as_ref()
+                            .map(|alt| rule_str.contains(&format!("saddr {}", alt)))
+                            .unwrap_or(false);
+                        let has_addr = has_original_addr || has_alt_addr;
+                        
+                        // 2. Vérifier si la règle contient le port et le protocole
                         let has_port = rule_str.contains(&format!("dport {}", port));
-                        let has_addr = rule_str.contains(&format!("{}", addr)) || 
-                                      ipv4_for_comparison.is_some_and(|ipv4| rule_str.contains(ipv4));
+                        let has_proto = match proto.to_lowercase().as_str() {
+                            "tcp" => rule_str.contains("tcp dport"),
+                            "udp" => rule_str.contains("udp dport"),
+                            _ => false,
+                        };
                         
-                        let matches = has_port && has_addr;
+                        // 3. Vérifier que la règle est une règle d'acceptation
+                        let is_accept = rule_str.contains("Accept(None)") || rule_str.contains("accept");
                         
-                        if debug_nftables == "1" || env::var("CI").is_ok() {
-                            if has_port {
-                                eprintln!("Rule with matching port: {:?}", rule);
-                            }
-                            
-                            if has_addr {
-                                eprintln!("Rule with matching address: {:?}", rule);
-                            }
-                            
-                            if matches {
-                                eprintln!("✓ MATCHED by relaxed criteria: {:?}", rule);
-                            }
+                        // Combinaison de toutes les conditions
+                        let matches = has_addr && has_port && has_proto && is_accept;
+                        
+                        // Afficher les infos de débogage
+                        if (debug_nftables == "1" || env::var("CI").is_ok()) && matches {
+                            eprintln!("\x1b[1;32mMATCHED RULE BY CONTENT: {:?}\x1b[0m", rule);
+                            eprintln!("  - Has address: {}", has_addr);
+                            eprintln!("  - Has port {}: {}", port, has_port);
+                            eprintln!("  - Has protocol {}: {}", proto, has_proto);
+                            eprintln!("  - Is accept rule: {}", is_accept);
+                        } else if (debug_nftables == "1" || env::var("CI").is_ok()) && (has_port || has_addr) {
+                            eprintln!("PARTIAL MATCH: {:?}", rule);
+                            eprintln!("  - Has address: {}", has_addr);
+                            eprintln!("  - Has port {}: {}", port, has_port);
+                            eprintln!("  - Has protocol {}: {}", proto, has_proto);
+                            eprintln!("  - Is accept rule: {}", is_accept);
                         }
                         
                         matches
@@ -275,8 +264,6 @@ pub async fn verify_nft_rule(
                     _ => false
                 }
             })
-        } else {
-            false
         }
     };
     
@@ -286,26 +273,25 @@ pub async fn verify_nft_rule(
                 eprintln!("✓ OK: Rule found for {} port {}/{}", addr, port, proto);
                 true
             } else {
-                eprintln!("✗ ERROR: Rule not found for {} port {}/{}", addr, port, proto);
+                eprintln!("=== ERROR: nftables rule not found for {} port {}/{}", addr_str, port, proto);
                 // Print additional debug info
-                if let Some(ipv4) = ipv4_mapped_addr {
-                    eprintln!("  Note: This address is an IPv4-mapped IPv6 address.");
-                    eprintln!("  IPv4 part: {}", ipv4);
-                    eprintln!("  Please check if rule exists with pure IPv4 address.");
+                if let Some(ipv4) = alt_addr_str {
+                    eprintln!("  Note: This address might be an IPv4-mapped IPv6 address.");
+                    eprintln!("  Alternative address format: {}", ipv4);
                 }
                 false
             }
-        },
+        }
         false => {
             if !rule_exists {
                 eprintln!("✓ OK: Rule successfully removed for {} port {}/{}", addr, port, proto);
                 true
             } else {
-                eprintln!("✗ ERROR: Rule still present for {} port {}/{}", addr, port, proto);
+                eprintln!("=== ERROR: nftables rule still exists for {} port {}/{}", addr_str, port, proto);
                 false
             }
         }
     };
-    
+
     Ok(result)
 }
