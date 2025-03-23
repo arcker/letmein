@@ -376,11 +376,11 @@ run_test_cycle()
         info "Verifying nftables rules after knock..."
         # Vérifier si la règle existe avec notre fonction de vérification
         if [ "$test_type" = "tcp" ]; then
-            if ! verify_nft_rule_exists "$conf" "$addr" 42 "tcp"; then
+            if ! verify_nft_rule_exists "$addr" 42 "tcp"; then
                 warning "Rule verification failed for $test_type $ip_version (TCP)"
             fi
         else
-            if ! verify_nft_rule_exists "$conf" "$addr" 42 "udp"; then
+            if ! verify_nft_rule_exists "$addr" 42 "udp"; then
                 warning "Rule verification failed for $test_type $ip_version (UDP)"
             fi
         fi
@@ -407,11 +407,11 @@ run_test_cycle()
         info "Verifying nftables rules after close..."
         # Vérifier formellement l'absence de règle avec notre fonction de vérification
         if [ "$test_type" = "tcp" ]; then
-            if ! verify_nft_rule_missing "$conf" "$addr" 42 "tcp"; then
+            if ! verify_nft_rule_missing "$addr" 42 "tcp"; then
                 warning "Rule still present after close for $test_type $ip_version (TCP)"
             fi
         else
-            if ! verify_nft_rule_missing "$conf" "$addr" 42 "udp"; then
+            if ! verify_nft_rule_missing "$addr" 42 "udp"; then
                 warning "Rule still present after close for $test_type $ip_version (UDP)"
             fi
         fi
@@ -527,11 +527,11 @@ run_close_test_cycle()
         sleep 1  # Attendre que les règles soient bien appliquées
         # Vérifier les règles avec notre fonction de vérification
         if [ "$test_type" = "tcp" ]; then
-            if ! verify_nft_rule_exists "$conf" "$addr" 42 "tcp"; then
+            if ! verify_nft_rule_exists "$addr" 42 "tcp"; then
                 warning "Rule verification failed for $test_type $ip_version (TCP)"
             fi
         else
-            if ! verify_nft_rule_exists "$conf" "$addr" 42 "udp"; then
+            if ! verify_nft_rule_exists "$addr" 42 "udp"; then
                 warning "Rule verification failed for $test_type $ip_version (UDP)"
             fi
         fi
@@ -554,11 +554,11 @@ run_close_test_cycle()
         sleep 1  # Attendre que les règles soient bien supprimées
         # Vérifier l'absence de règle
         if [ "$test_type" = "tcp" ]; then
-            if ! verify_nft_rule_missing "$conf" "$addr" 42 "tcp"; then
+            if ! verify_nft_rule_missing "$addr" 42 "tcp"; then
                 warning "Rule still present after close for $test_type $ip_version (TCP)"
             fi
         else
-            if ! verify_nft_rule_missing "$conf" "$addr" 42 "udp"; then
+            if ! verify_nft_rule_missing "$addr" 42 "udp"; then
                 warning "Rule still present after close for $test_type $ip_version (UDP)"
             fi
         fi
